@@ -1697,6 +1697,111 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
   );
 };
 
+/* ═══════════════════ TERMS & PRIVACY ═══════════════════ */
+const TERMS_TEXT = `GIFT3RS TERMS OF SERVICE
+Last updated: May 2026
+
+1. ACCEPTANCE
+By accessing or using GIFT3RS ("the Platform") you agree to be bound by these Terms of Service. If you do not agree, do not use the Platform.
+
+2. ELIGIBILITY
+You must be at least 18 years old to create a streamer account or send monetary gifts. Viewers under 18 may browse content with parental consent but may not make purchases.
+
+3. STREAMER ACCOUNTS
+Streamers pay a one-time setup fee of $4.99 to activate their creator account. Streamers must provide accurate identity information. GIFT3RS reserves the right to suspend accounts that violate community guidelines.
+
+4. PAYMENTS & FEES
+Platform retains 10% of all gift transactions. Platform retains 20% of subscription revenue. All transactions are processed in real time and are final. Refunds are issued solely at GIFT3RS's discretion in cases of technical error.
+
+5. PROHIBITED CONTENT
+You may not stream or share: nudity or sexually explicit material, content that promotes violence or hatred, content that infringes third-party intellectual property rights, or any content illegal in your jurisdiction.
+
+6. PAYOUTS
+Streamer earnings are paid out within 24 hours of withdrawal request to the registered payout account. Minimum withdrawal amount is $5.00 USD equivalent.
+
+7. TERMINATION
+GIFT3RS may suspend or terminate your account at any time for violation of these Terms without prior notice.
+
+8. LIMITATION OF LIABILITY
+GIFT3RS is not liable for any indirect, incidental, or consequential damages arising from your use of the Platform.
+
+9. CONTACT
+For questions about these Terms, email: 1innovativestudio@gmail.com`;
+
+const PRIVACY_TEXT = `GIFT3RS PRIVACY POLICY
+Last updated: May 2026
+
+1. INFORMATION WE COLLECT
+- Account information: email address, username, display name, profile photo
+- Payment information: transaction records (we do not store card numbers; payments are handled by Paystack and Stripe)
+- Usage data: stream views, chat messages, gift activity
+- Device data: browser type, IP address, operating system
+
+2. HOW WE USE YOUR INFORMATION
+- To operate and improve the Platform
+- To process payments and payouts
+- To send service notifications (new subscribers, gifts received)
+- To enforce our Terms of Service and community guidelines
+- To comply with legal obligations
+
+3. DATA SHARING
+We do not sell your personal data. We share data only with:
+- Paystack and Stripe (payment processing)
+- Agora (live video infrastructure)
+- Supabase (database and authentication)
+- Law enforcement when legally required
+
+4. DATA RETENTION
+Account data is retained while your account is active. You may request deletion by emailing 1innovativestudio@gmail.com. Payment records are retained for 7 years for compliance purposes.
+
+5. SECURITY
+All data is encrypted in transit (TLS) and at rest. Passwords are hashed using industry-standard algorithms. We conduct regular security reviews.
+
+6. YOUR RIGHTS
+You have the right to access, correct, or delete your personal data. To exercise these rights, contact: 1innovativestudio@gmail.com
+
+7. COOKIES
+We use essential cookies for authentication and session management only. We do not use advertising or tracking cookies.
+
+8. CONTACT
+Data protection enquiries: 1innovativestudio@gmail.com`;
+
+const TermsSection=()=>{
+  const [modal,setModal]=useState(null); // "terms" | "privacy" | null
+  return(
+    <>
+      {modal&&(
+        <div className="mOverlay" onClick={()=>setModal(null)} style={{zIndex:600}}>
+          <div className="mBox" onClick={e=>e.stopPropagation()} style={{maxWidth:560}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div className="exo" style={{fontSize:16,fontWeight:900}}>{modal==="terms"?"Terms of Service":"Privacy Policy"}</div>
+              <button onClick={()=>setModal(null)} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:"50%",width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Ico n="close" s={14} c={C.muted}/></button>
+            </div>
+            <pre style={{fontSize:11,color:C.muted,lineHeight:1.8,whiteSpace:"pre-wrap",fontFamily:"inherit",margin:0}}>
+              {modal==="terms"?TERMS_TEXT:PRIVACY_TEXT}
+            </pre>
+            <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`,fontSize:11,color:C.muted}}>
+              Questions? Email <a href="mailto:1innovativestudio@gmail.com" style={{color:C.cyan,textDecoration:"none"}}>1innovativestudio@gmail.com</a>
+            </div>
+          </div>
+        </div>
+      )}
+      <div style={{fontSize:12,color:C.muted,lineHeight:1.8}}>
+        <div style={{fontWeight:700,color:C.text,marginBottom:6}}>Terms of Service</div>
+        <p style={{marginBottom:8}}>By using GIFT3RS you agree to our Terms of Service. Streamers must be 18+. All transactions are final. Platform takes 10% of gifts and 20% of subscriptions.</p>
+        <div style={{fontWeight:700,color:C.text,margin:"12px 0 6px"}}>Privacy Policy</div>
+        <p style={{marginBottom:8}}>We collect minimal data needed to operate the platform. We never sell your data. Payments are processed securely via Paystack and Stripe.</p>
+        <div style={{fontWeight:700,color:C.text,margin:"12px 0 6px"}}>Support</div>
+        <p style={{marginBottom:12}}>For help or enquiries contact <a href="mailto:1innovativestudio@gmail.com" style={{color:C.cyan,textDecoration:"none"}}>1innovativestudio@gmail.com</a></p>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>setModal("terms")} style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:8,padding:"8px 14px",color:C.cyan,cursor:"pointer",fontSize:12,fontWeight:700}}>Full Terms of Service →</button>
+          <button onClick={()=>setModal("privacy")} style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:8,padding:"8px 14px",color:C.cyan,cursor:"pointer",fontSize:12,fontWeight:700}}>Privacy Policy →</button>
+        </div>
+      </div>
+    </>
+  );
+};
+
 /* ═══════════════════ SETTINGS PANEL ═══════════════════ */
 const SettingsPanel=({user,onSignOut,onSignIn,isStreamer})=>{
   const [openSection,setOpenSection]=useState(null);
@@ -1731,19 +1836,8 @@ const SettingsPanel=({user,onSignOut,onSignIn,isStreamer})=>{
             {sec.id==="privacy"&&<div>{[["showEarnings","Show earnings on profile"],["allowDM","Allow direct messages"],["publicProfile","Public profile"]].map(([k,label])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><Toggle on={privPrefs[k]} onChange={()=>toggle(setPrivPrefs,k)}/></div>))}<div style={{marginTop:12}}><button style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700}}>Block / Muted Users</button></div></div>}
             {sec.id==="payments"&&<div><div style={{fontSize:13,color:C.muted,marginBottom:12}}>Connected payment methods:</div>{[["Paystack","GHS, KES"],["Stripe","USD, GBP, EUR, CAD"]].map(([name,currencies])=>(<div key={name} className="settingsInner" style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px",borderRadius:10,marginBottom:8}}><div><div style={{fontWeight:700,fontSize:13}}>{name}</div><div style={{fontSize:11,color:C.muted}}>{currencies}</div></div><div style={{display:"flex",alignItems:"center",gap:4}}><Ico n="check" s={13} c={C.emerald} sw={3}/><span style={{fontSize:11,color:C.emerald,fontWeight:700}}>Connected</span></div></div>))}{isStreamer&&<div style={{marginTop:14}}><div style={{fontSize:12,color:C.muted,marginBottom:8}}>Payout account:</div><input className="inp" placeholder="Mobile Money / Bank account number" style={{fontSize:13}}/><button className="btn btnC" style={{padding:"9px 18px",fontSize:13,marginTop:10}}>Save Payout Account</button></div>}</div>}
             {sec.id==="security"&&<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",marginBottom:12,borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:13}}>Two-Factor Authentication</div><div style={{fontSize:11,color:C.muted}}>Extra security for your account</div></div><Toggle on={twoFA} onChange={()=>setTwoFA(v=>!v)}/></div><div style={{marginBottom:10}}><div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Connected email</div><div className="settingsInner" style={{fontSize:13,borderRadius:10,padding:"9px 14px"}}>{user?.email||"Not logged in"}</div></div><button style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,width:"100%",marginTop:8}}>Change Password</button><button style={{background:"#FF2D2D08",border:"1px solid #FF2D2D20",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,marginTop:8,width:"100%"}}>Delete Account</button></div>}
-            {sec.id==="help"&&<div>{[["How do gifts work?","Viewers send gifts during streams. You keep 90%, platform takes 10%."],["How do I withdraw?","Withdrawals processed within 24 hours to your payout account."],["Why was my stream removed?","Streams violating community guidelines are removed."],["How do I become verified?","Complete identity verification and pay the one-time setup fee."]].map(([q,a])=>(<div key={q} className="settingsInner" style={{marginBottom:12,padding:"12px",borderRadius:10}}><div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{q}</div><div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{a}</div></div>))}<button className="btn btnC" style={{padding:"10px 20px",fontSize:13,marginTop:4}}>Contact Support</button></div>}
-            {sec.id==="terms"&&<div style={{fontSize:12,color:C.muted,lineHeight:1.8}}>
-              <div style={{fontWeight:700,color:C.text,marginBottom:8}}>Terms of Service</div>
-              <p>By using GIFT3RS you agree to our Terms of Service. Streamers must be 18+. All transactions are final.</p>
-              <div style={{fontWeight:700,color:C.text,margin:"12px 0 8px"}}>Privacy Policy</div>
-              <p>We collect minimal data needed to operate the platform. We never sell your data. Payments are processed securely via Paystack and Stripe.</p>
-              <div style={{fontWeight:700,color:C.text,margin:"12px 0 8px"}}>Earnings &amp; Fees</div>
-              <p>Platform takes 10% of gifts and 20% of subscription revenue. Payouts processed within 24 hours.</p>
-              <div style={{display:"flex",gap:10,marginTop:12}}>
-                <button style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:8,padding:"6px 12px",color:C.cyan,cursor:"pointer",fontSize:12}}>Full Terms →</button>
-                <button style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:8,padding:"6px 12px",color:C.cyan,cursor:"pointer",fontSize:12}}>Privacy Policy →</button>
-              </div>
-            </div>}
+            {sec.id==="help"&&<div>{[["How do gifts work?","Viewers send gifts during streams. You keep 90%, platform takes 10%."],["How do I withdraw?","Withdrawals processed within 24 hours to your payout account."],["Why was my stream removed?","Streams violating community guidelines are removed."],["How do I become verified?","Complete identity verification and pay the one-time setup fee."]].map(([q,a])=>(<div key={q} className="settingsInner" style={{marginBottom:12,padding:"12px",borderRadius:10}}><div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{q}</div><div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{a}</div></div>))}<a href="mailto:1innovativestudio@gmail.com" style={{textDecoration:"none"}}><button className="btn btnC" style={{padding:"10px 20px",fontSize:13,marginTop:4}}>Contact Support</button></a><div style={{fontSize:11,color:C.muted,marginTop:8}}>Email: <span style={{color:C.cyan}}>1innovativestudio@gmail.com</span></div></div>}
+            {sec.id==="terms"&&<TermsSection/>}
           </div>}
         </div>
       ))}
