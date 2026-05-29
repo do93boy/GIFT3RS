@@ -341,7 +341,7 @@ export const subscribeToStreamer = async ({
         recipientCut: streamerCut,
         currency,
         reference:    tx.reference || reference,
-        metadata:     { streamerId, plan },
+        metadata:     { receiverId: streamerId, plan },
       });
       // Save subscription record
       await supabase.from("subscriptions").upsert({

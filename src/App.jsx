@@ -486,7 +486,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
 
   useEffect(()=>{
     if(!user||!stream.id)return;
-    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.id).eq("status","active").single().then(({data})=>{if(data)setSubscribed(true);});
+    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.streamer_id||stream.id).eq("status","active").single().then(({data})=>{if(data)setSubscribed(true);});
   },[user,stream.id]);
 
   useEffect(()=>{
@@ -1124,12 +1124,12 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const handleToggleMic=async()=>{
     const next=!micOn;setMicOn(next);
     if(localAudioTrack.current?.setEnabled)await localAudioTrack.current.setEnabled(next);
-    else await toggleCamera(next); // stream.js has mic/cam swapped
+    else await toggleMic(next);
   };
   const handleToggleCam=async()=>{
     const next=!camOn;setCamOn(next);
     if(localVideoTrack.current?.setEnabled)await localVideoTrack.current.setEnabled(next);
-    else await toggleMic(next);
+    else await toggleCamera(next);
     if(next&&liveVideoRef.current&&localVideoTrack.current){
       try{const raw=localVideoTrack.current.getMediaStreamTrack?.();if(raw){liveVideoRef.current.srcObject=new MediaStream([raw]);liveVideoRef.current.muted=true;liveVideoRef.current.play().catch(()=>{});}}catch(_e){/* camera re-attach failed silently */}
     }
@@ -1204,10 +1204,10 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
           <div style={{marginBottom:14}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:7}}>STREAM TITLE *</label><input className="inp" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Give your stream an exciting title..." maxLength={100}/><div style={{fontSize:10,color:C.muted,marginTop:4,textAlign:"right"}}>{title.length}/100</div></div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:7}}>THUMBNAIL <span style={{fontWeight:400,fontSize:10}}>(optional — shown on stream cards)</span></label>
-            <input type="file" accept="image/*" id="thumb-input" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){setThumbFile(f);setThumbPreview(URL.createObjectURL(f));}}}/>
+            <input type="file" accept="image/*" id="thumb-input" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){if(thumbPreview)URL.revokeObjectURL(thumbPreview);setThumbFile(f);setThumbPreview(URL.createObjectURL(f));}}}/>
             <div onClick={()=>document.getElementById("thumb-input").click()} style={{borderRadius:12,overflow:"hidden",cursor:"pointer",border:`2px dashed ${thumbPreview?C.emerald:C.border2}`,height:thumbPreview?120:64,display:"flex",alignItems:"center",justifyContent:"center",gap:8,backgroundImage:thumbPreview?`url(${thumbPreview})`:"none",backgroundSize:"cover",backgroundPosition:"center"}}>
               {!thumbPreview&&<><Ico n="upload" s={18} c={C.muted}/><span style={{fontSize:13,color:C.muted}}>Click to upload thumbnail</span></>}
-              {thumbPreview&&<div style={{width:"100%",height:"100%",display:"flex",alignItems:"flex-end",justifyContent:"flex-end",padding:8}}><button onClick={e=>{e.stopPropagation();setThumbPreview("");setThumbFile(null);}} style={{background:"rgba(0,0,0,.75)",border:"none",borderRadius:6,padding:"4px 10px",color:"#fff",fontSize:11,cursor:"pointer",fontWeight:700}}>Remove</button></div>}
+              {thumbPreview&&<div style={{width:"100%",height:"100%",display:"flex",alignItems:"flex-end",justifyContent:"flex-end",padding:8}}><button onClick={e=>{e.stopPropagation();URL.revokeObjectURL(thumbPreview);setThumbPreview("");setThumbFile(null);}} style={{background:"rgba(0,0,0,.75)",border:"none",borderRadius:6,padding:"4px 10px",color:"#fff",fontSize:11,cursor:"pointer",fontWeight:700}}>Remove</button></div>}
             </div>
           </div>
           <div style={{marginBottom:14}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:9}}>CATEGORY</label><div className="sx" style={{display:"flex",flexWrap:"wrap",gap:8}}>{CATS.slice(1).map(c=>(<button key={c} onClick={()=>setCat(c===cat?"":c)} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}20`:"transparent",color:cat===c?C.cyan:"inherit",fontWeight:cat===c?800:600,fontSize:12,cursor:"pointer",transition:"all .18s",whiteSpace:"nowrap"}}>{c}</button>))}</div></div>
@@ -1486,7 +1486,7 @@ const BecomeStreamer=({fmt,onBack,onComplete,user,currency="USD"})=>{
     if(!user){alert("You must be signed in.");return;}
     setPaying(true);
     try{
-      await payStreamerFee({userId:user.id,userEmail:user.email,currency,onSuccess:onComplete,onCancel:()=>setPaying(false)});
+      await payStreamerFee({userId:user.id,userEmail:user.email,currency,onSuccess:()=>{setStep(3);window.setTimeout(onComplete,2000);},onCancel:()=>setPaying(false)});
     }catch(err){console.error("Payment error",err);setPaying(false);}
   };
 
@@ -1583,8 +1583,8 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
     setSaving(true);setEditing(false);
     let coverUrl=profile.coverUrl.startsWith("blob:")?null:profile.coverUrl;
     let avatarUrl=profile.avatarUrl.startsWith("blob:")?null:profile.avatarUrl;
-    if(profile.coverFile){const url=await uploadImage(profile.coverFile,"covers");if(url)coverUrl=url;}
-    if(profile.avatarFile){const url=await uploadImage(profile.avatarFile,"avatars");if(url)avatarUrl=url;}
+    if(profile.coverFile){const url=await uploadImage(profile.coverFile,"covers");if(!url){setSaving(false);return;}coverUrl=url;}
+    if(profile.avatarFile){const url=await uploadImage(profile.avatarFile,"avatars");if(!url){setSaving(false);return;}avatarUrl=url;}
     const {error}=await supabase.from("profiles").upsert({id:user.id,display_name:profile.name,username:profile.username.replace("@","").trim().toLowerCase(),bio:profile.bio,location:profile.location,links:profile.links,cover_url:coverUrl||null,avatar_url:avatarUrl||null,sub_price_weekly:Number(profile.sp.w)||1.99,sub_price_monthly:Number(profile.sp.m)||5.99,sub_price_annually:Number(profile.sp.a)||49.99},{onConflict:"id"});
     if(error){alert("Save failed: "+error.message);setSaving(false);return;}
     setProfile(p=>({...p,coverUrl:coverUrl||p.coverUrl,avatarUrl:avatarUrl||p.avatarUrl,coverFile:null,avatarFile:null}));
@@ -1595,8 +1595,8 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
   return(
     <div style={{paddingBottom:60}} className="page">
       {saved&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:C.emerald,color:"#000",borderRadius:12,padding:"10px 20px",fontWeight:800,zIndex:999,fontSize:14,whiteSpace:"nowrap",boxShadow:`0 4px 20px rgba(0,229,160,.4)`,display:"flex",alignItems:"center",gap:8}}><Ico n="check" s={16} c="#000" sw={3}/>Profile saved!</div>}
-      <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)setProfile(p=>({...p,coverFile:f,coverUrl:URL.createObjectURL(f)}));}}/>
-      <input ref={avatarRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)setProfile(p=>({...p,avatarFile:f,avatarUrl:URL.createObjectURL(f)}));}}/>
+      <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){if(profile.coverUrl.startsWith("blob:"))URL.revokeObjectURL(profile.coverUrl);setProfile(p=>({...p,coverFile:f,coverUrl:URL.createObjectURL(f)}));}}}/>
+      <input ref={avatarRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){if(profile.avatarUrl.startsWith("blob:"))URL.revokeObjectURL(profile.avatarUrl);setProfile(p=>({...p,avatarFile:f,avatarUrl:URL.createObjectURL(f)}));}}}/>
       {/* Cover */}
       <div style={{height:200,background:profile.coverUrl?`url(${profile.coverUrl}) center/cover`:`linear-gradient(135deg,${C.cyan}20,${C.purple}15)`,position:"relative"}}>
         {editing&&<button onClick={()=>coverRef.current?.click()} style={{position:"absolute",top:14,right:14,background:"rgba(0,0,0,.65)",border:"1px solid rgba(255,255,255,.2)",borderRadius:10,padding:"8px 14px",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:700,backdropFilter:"blur(4px)"}}>Change Cover</button>}
@@ -1747,13 +1747,15 @@ const AuthModal=({onClose,onLogin})=>(
 );
 
 /* ═══════════════════ STREAMER PUBLIC PROFILE ═══════════════════ */
-const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired})=>{
+const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>{
   const [subscribed,setSubscribed]=useState(false);
+  const [showSub,setShowSub]=useState(false);
   const [tab,setTab]=useState("streams");
   const streams=STREAMS.filter(s=>s.streamer===streamer.streamer);
   const allStreams=streams.length?streams:STREAMS.slice(0,3);
   return(
     <div style={{paddingBottom:60}} className="page">
+      {showSub&&<SubModal stream={{...streamer,id:streamer.streamer_id||streamer.id}} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={()=>{setSubscribed(true);setShowSub(false);}} user={user} currency={cur?.code||"USD"}/>}
       <div style={{height:180,background:`linear-gradient(135deg,${streamer.col}30,${streamer.bg||"#0D0A20"})`,position:"relative"}}>
         <button onClick={onBack} style={{position:"absolute",top:14,left:14,background:"rgba(0,0,0,.5)",border:"none",borderRadius:10,padding:"8px",cursor:"pointer",display:"flex",backdropFilter:"blur(6px)"}}><Ico n="back" s={18} c="#fff"/></button>
         <div style={{position:"absolute",bottom:-40,left:24}}>
@@ -1776,8 +1778,8 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired})=>{
           </div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
             {streamer.live&&<button className="btn btnR" style={{padding:"10px 18px",fontSize:13,display:"flex",alignItems:"center",gap:6}} onClick={()=>onStream(streamer)}><div className="liveDot" style={{width:6,height:6}}/>Watch Live</button>}
-            <button className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"10px 18px",fontSize:13}} onClick={()=>{if(!user){onAuthRequired();return;}setSubscribed(v=>!v);}}>
-              {subscribed?"Subscribed":"Subscribe"}
+            <button className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"10px 18px",fontSize:13}} onClick={()=>{if(!user){onAuthRequired();return;}if(subscribed)return;setShowSub(true);}}>
+              {subscribed?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c="#06060F" sw={3}/>Subscribed</span>:"Subscribe"}
             </button>
           </div>
         </div>
@@ -1801,7 +1803,7 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired})=>{
                 <div><div style={{fontWeight:700}}>{label}</div><div style={{fontSize:11,color:C.muted}}>Access all premium content</div></div>
                 <div style={{textAlign:"right"}}>
                   <div className="exo" style={{color:C.gold,fontWeight:900}}>{fmt(price)}</div>
-                  <button className="btn btnP" style={{padding:"5px 12px",fontSize:11,marginTop:4}} onClick={()=>{if(!user){onAuthRequired();return;}setSubscribed(true);}}>Subscribe</button>
+                  <button className="btn btnP" style={{padding:"5px 12px",fontSize:11,marginTop:4}} onClick={()=>{if(!user){onAuthRequired();return;}setShowSub(true);}}>Subscribe</button>
                 </div>
               </div>
             ))}
@@ -1841,7 +1843,7 @@ export default function App(){
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
   const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},{id:"dash",icon:"trending",label:"EARN"},{id:"prof",icon:"profile",label:"PROFILE"}];
-  if(viewingProfile&&!viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<StreamerProfile streamer={viewingProfile} fmt={fmt} onBack={()=>setViewingProfile(null)} onStream={s=>{setViewingProfile(null);setViewing(s);}} user={user} onAuthRequired={()=>setShowAuth(true)}/></>);
+  if(viewingProfile&&!viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<StreamerProfile streamer={viewingProfile} fmt={fmt} onBack={()=>setViewingProfile(null)} onStream={s=>{setViewingProfile(null);setViewing(s);}} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur}/></>);
   if(viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<LiveViewer stream={viewing} fmt={fmt} onBack={()=>setViewing(null)} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur} onViewProfile={s=>{setViewing(null);setViewingProfile(s);}}/></>);
   if(showBecome)return(<><GS/><div style={{minHeight:"100vh"}}><div className="topBar"><Logo/></div><div style={{paddingTop:60}}><BecomeStreamer fmt={fmt} onBack={()=>setShowBecome(false)} user={user} currency={cur?.code||"USD"} onComplete={()=>{setIsStreamer(true);setShowBecome(false);setTab("live");localStorage.setItem("gift3rs_is_streamer","true");}}/></div></div></>);
   return(

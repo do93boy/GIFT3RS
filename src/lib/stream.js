@@ -84,7 +84,7 @@ export const startStream = async ({
         .eq("id", data.id);
     });
 
-    return { streamId: data.id, channelName };
+    return { streamId: data.id, channelName, localVideoTrack, localAudioTrack };
   } catch (e) {
     console.error("startStream error:", e);
     alert("Failed to start stream: " + e.message);
