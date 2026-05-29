@@ -45,21 +45,7 @@ function useCurrency(){
   return {cur,fmt,curKey,setCurKey,allCurrencies:CURRENCIES};
 }
 
-/* ═══════════════════ MOCK DATA ═══════════════════ */
-const STREAMS=[
-  {id:1,streamer:"KofiBeats",av:"K",title:"Afrobeats Night 🎵 Non-stop vibes!",viewers:14200,gifts:4820,cat:"Music",bg:"#0D0A20",col:C.purple,verified:true,live:true,sp:{w:2.99,m:9.99,a:89.99}},
-  {id:2,streamer:"TechWithAma",av:"A",title:"Building a Full-Stack App LIVE 💻",viewers:8900,gifts:2100,cat:"Tech",bg:"#051525",col:C.cyan,verified:true,live:true,sp:{w:1.99,m:6.99,a:59.99}},
-  {id:3,streamer:"FoodieNana",av:"N",title:"Cooking Jollof Rice from Scratch 🍛",viewers:22400,gifts:9100,cat:"Food",bg:"#1A0800",col:C.amber,verified:false,live:true,sp:{w:0.99,m:3.99,a:34.99}},
-  {id:4,streamer:"GamingKwame",av:"G",title:"FIFA 2026 Tournament — FINALS 🏆",viewers:31000,gifts:12400,cat:"Gaming",bg:"#051A05",col:C.emerald,verified:true,live:true,sp:{w:2.49,m:7.99,a:69.99}},
-  {id:5,streamer:"FitnessAbena",av:"F",title:"Full Body HIIT — Join Me! 🏋️",viewers:5600,gifts:990,cat:"Fitness",bg:"#1A0B00",col:C.gold,verified:false,live:false,sp:{w:1.49,m:4.99,a:44.99}},
-  {id:6,streamer:"FinanceGuru",av:"G",title:"How to Invest GH₵500 in 2026 📈",viewers:18700,gifts:7800,cat:"Finance",bg:"#001A10",col:C.emerald,verified:true,live:true,sp:{w:3.99,m:12.99,a:109.99}},
-  {id:7,streamer:"ComedyKojo",av:"C",title:"Stand-Up Special LIVE 😂 Don't miss it!",viewers:9300,gifts:3100,cat:"Comedy",bg:"#15050A",col:C.pink,verified:true,live:true,sp:{w:1.99,m:5.99,a:49.99}},
-  {id:8,streamer:"ArtByAkosua",av:"A",title:"Speed-painting a portrait LIVE 🎨",viewers:4100,gifts:1200,cat:"Art",bg:"#10051A",col:C.purple,verified:false,live:true,sp:{w:0.99,m:2.99,a:24.99}},
-  {id:9,streamer:"TravelYaw",av:"T",title:"Exploring Kumasi Streets 🌍 Live Tour",viewers:7200,gifts:2800,cat:"Travel",bg:"#0A1520",col:C.sky,verified:true,live:true,sp:{w:1.49,m:4.99,a:39.99}},
-  {id:10,streamer:"MusicByEsi",av:"E",title:"Original Song Writing Session 🎹",viewers:3800,gifts:1500,cat:"Music",bg:"#200A15",col:C.pink,verified:false,live:false,sp:{w:0.99,m:3.49,a:29.99}},
-  {id:11,streamer:"SportsTv",av:"S",title:"Champions League Watch Party ⚽ LIVE",viewers:42000,gifts:18000,cat:"Sports",bg:"#051A0A",col:C.emerald,verified:true,live:true,sp:{w:2.99,m:8.99,a:79.99}},
-  {id:12,streamer:"BeautyByAdwoa",av:"B",title:"Full Glam Makeup Tutorial ✨ LIVE",viewers:6100,gifts:2200,cat:"Fashion",bg:"#1A0510",col:C.pink,verified:false,live:true,sp:{w:1.99,m:5.99,a:49.99}},
-];
+/* ═══════════════════ STATIC CONFIG ═══════════════════ */
 const CATS=["All","Music","Gaming","Tech","Food","Finance","Fitness","Art","Education","Comedy","Fashion","Travel","Sports","Lifestyle","News","Spirituality"];
 const GIFTS_LIST=[
   {emoji:"star",name:"Star",usd:0.5},{emoji:"zap",name:"Fire",usd:1},
@@ -67,18 +53,21 @@ const GIFTS_LIST=[
   {emoji:"crown",name:"Crown",usd:25},{emoji:"coins",name:"Bag",usd:50},
   {emoji:"trophy",name:"Trophy",usd:100},{emoji:"edit",name:"Amount",usd:0},
 ];
-const CHAT_POOL=[
-  {u:"Kwame_B",t:"This is incredible!! 🔥🔥",c:C.cyan,gift:null},
-  {u:"Ama_G",t:"First time here, AMAZING!",c:C.emerald,gift:null},
-  {u:"Nana_K",t:"sent a Diamond",c:C.gold,gift:"diamond"},
-  {u:"Kofi_A",t:"Been watching for 2 hours lol",c:C.pink,gift:null},
-  {u:"Abena_T",t:"sent a Crown",c:C.gold,gift:"crown"},
-  {u:"Yaw_M",t:"Goat behaviour 🐐 respecttt",c:C.amber,gift:null},
-  {u:"Adwoa_P",t:"sent a Rocket",c:C.gold,gift:"rocket"},
-  {u:"Kojo_R",t:"LETS GOOOOO 🎉🎉🎉",c:C.purple,gift:null},
-  {u:"Efua_S",t:"My fav streamer no cap",c:C.sky,gift:null},
-  {u:"Mensah_D",t:"sent a Star",c:C.gold,gift:"star"},
-];
+const STREAM_COLS=[C.cyan,C.purple,C.amber,C.emerald,C.gold,C.pink,C.sky];
+const mapStreamRow=(s,profileMap={})=>{
+  const profile=profileMap[s.streamer_id]||{};
+  const name=profile.display_name||profile.username||s.streamer_name||"Streamer";
+  const col=STREAM_COLS[parseInt((s.id||"0").toString().slice(-2)||"0",16)%STREAM_COLS.length]||C.cyan;
+  return{
+    id:s.id, streamer:name, av:(name[0]||"S").toUpperCase(),
+    title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0,
+    cat:s.category||"General", bg:"#0D0A20", col, verified:false, live:s.is_live!==false,
+    channel_name:s.channel_name||"", thumbnail:s.thumbnail_url||"",
+    live_thumbnail_url:s.live_thumbnail_url||"", streamer_id:s.streamer_id||"",
+    sp:{w:s.sub_price_weekly||1.99,m:s.sub_price_monthly||5.99,a:s.sub_price_annually||49.99},
+    avatar_url:profile.avatar_url||"", isReal:true,
+  };
+};
 
 /* ═══════════════════ GLOBAL STYLES ═══════════════════ */
 const GS=()=>(
@@ -471,7 +460,7 @@ const SubModal=({stream,fmt,onClose,onSubscribed,user,currency="USD"})=>{
 
 /* ═══════════════════ LIVE VIEWER ═══════════════════ */
 const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
-  const [chat,setChat]=useState(CHAT_POOL.slice(0,5));
+  const [chat,setChat]=useState([]);
   const [msg,setMsg]=useState("");
   const [liked,setLiked]=useState(()=>{try{const savedLikes=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return !!savedLikes[stream.id];}catch(_e){return false;}});
   const [likes,setLikes]=useState(stream.viewers);
@@ -512,11 +501,6 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     return()=>{leaveStream();};
   },[stream.channel_name]); // eslint-disable-line
 
-  useEffect(()=>{
-    if(stream.channel_name)return;
-    const t=setInterval(()=>{const m={...CHAT_POOL[Math.floor(Math.random()*CHAT_POOL.length)],id:Date.now()};setChat(c=>[...c.slice(-25),m]);},2800);
-    return()=>clearInterval(t);
-  },[stream.channel_name]);
 
   useEffect(()=>{
     if(!stream.id||typeof stream.id!=="string")return;
@@ -632,17 +616,17 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                       <div style={{minWidth:32,height:32,borderRadius:10,background:`${C.gold}25`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:m.customAmt?"0 8px":0}}>
                         {m.customAmt?<span style={{fontSize:12,fontWeight:900,color:C.gold,whiteSpace:"nowrap"}}>{m.customAmt}</span>:<Ico n={m.gift} s={16} c={C.gold}/>}
                       </div>
-                      <div><span style={{fontWeight:800,color:C.gold,fontSize:13}}>{m.u}</span><span style={{fontSize:12,color:"rgba(255,255,255,.75)",marginLeft:4}}>{m.t}</span></div>
+                      <div><span style={{fontWeight:800,color:C.gold,fontSize:13}}>{m.u}</span><span style={{fontSize:12,color:C.text,marginLeft:4}}>{m.t}</span></div>
                     </div>
                   ):m.type==="sub"?(
                     <div style={{background:`linear-gradient(135deg,${C.purple}18,${C.pink}08)`,border:`1px solid ${C.purple}35`,borderRadius:12,padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
                       <div style={{width:32,height:32,borderRadius:10,background:`${C.purple}25`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="star" s={16} c={C.purple}/></div>
-                      <div><span style={{fontWeight:800,color:C.purple,fontSize:13}}>{m.u}</span><span style={{fontSize:12,color:"rgba(255,255,255,.75)",marginLeft:4}}>{m.t}</span></div>
+                      <div><span style={{fontWeight:800,color:C.purple,fontSize:13}}>{m.u}</span><span style={{fontSize:12,color:C.text,marginLeft:4}}>{m.t}</span></div>
                     </div>
                   ):(
                     <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                       <div style={{width:22,height:22,borderRadius:"50%",background:m.c,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff"}}>{m.u[0]}</div>
-                      <div style={{lineHeight:1.5}}><span style={{fontSize:12,fontWeight:800,color:m.c}}>{m.u} </span><span style={{fontSize:13,color:"rgba(255,255,255,.85)"}}>{m.t}</span></div>
+                      <div style={{lineHeight:1.5}}><span style={{fontSize:12,fontWeight:800,color:m.c}}>{m.u} </span><span style={{fontSize:13,color:C.text}}>{m.t}</span></div>
                     </div>
                   )}
                 </div>
@@ -661,7 +645,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 ))}
               </div>
               <div style={{display:"flex",gap:8}}>
-                <input className="inp" style={{flex:1,padding:"9px 12px",fontSize:13,background:"rgba(255,255,255,.07)",border:"1px solid rgba(255,255,255,.12)",color:"#fff"}} placeholder={user?"Say something...":"Sign in to chat..."} value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} onClick={()=>{if(!user)onAuthRequired&&onAuthRequired();}}/>
+                <input className="inp" style={{flex:1,padding:"9px 12px",fontSize:13}} placeholder={user?"Say something...":"Sign in to chat..."} value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} onClick={()=>{if(!user)onAuthRequired&&onAuthRequired();}}/>
                 <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}setShowGift(true);}} className="btn btnA" style={{padding:"9px 12px",fontSize:14,display:"flex",alignItems:"center",gap:5,flexShrink:0}}><Ico n="gift" s={14} c="#06060F"/>Gift</button>
               </div>
             </div>
@@ -769,132 +753,76 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
 /* ═══════════════════ HOME FEED ═══════════════════ */
 const HomeFeed=({fmt,onStream,onViewProfile})=>{
   const [cat,setCat]=useState("All");
-  const [realStreams,setRealStreams]=useState([]);
-  const [featured,setFeatured]=useState(STREAMS[3]);
-
-  const mapStream=(s,profileMap={})=>{
-    const profile=profileMap[s.streamer_id]||{};
-    const name=profile.display_name||profile.username||s.streamer_name||"Streamer";
-    const COLS=[C.cyan,C.purple,C.amber,C.emerald,C.gold,C.pink,C.sky];
-    const col=COLS[parseInt((s.id||"0").toString().slice(-2)||"0",16)%COLS.length]||C.cyan;
-    return{
-      id:s.id, streamer:name, av:(name[0]||"S").toUpperCase(),
-      title:s.title||"Live Stream",
-      viewers:s.viewer_count||0, gifts:s.gift_total||0,
-      cat:s.category||"General",
-      bg:"#0D0A20", col, verified:false, live:true,
-      channel_name:s.channel_name||"",
-      thumbnail:s.thumbnail_url||"",
-      live_thumbnail_url:s.live_thumbnail_url||"",
-      streamer_id:s.streamer_id||"",
-      sp:{w:1.99,m:5.99,a:49.99},
-      avatar_url:profile.avatar_url||"",
-      isReal:true,
-    };
-  };
+  const [streams,setStreams]=useState([]);
+  const [featured,setFeatured]=useState(null);
+  const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
     let cancelled=false;
     const load=async()=>{
-      // Simple query — no joins that can silently fail
-      const {data:streams,error}=await supabase
+      const {data:rows,error}=await supabase
         .from("streams")
-        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name")
+        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
         .eq("is_live",true)
         .order("viewer_count",{ascending:false})
         .limit(30);
       if(cancelled)return;
-      if(error){console.error("[HomeFeed]",error.message);return;}
-      if(!streams?.length)return;
-      // Fetch profiles separately — best effort
-      const ids=[...new Set(streams.map(s=>s.streamer_id).filter(Boolean))];
+      if(error){console.error("[HomeFeed]",error.message);setLoading(false);return;}
+      const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
       let profileMap={};
       if(ids.length>0){
         const {data:profiles}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",ids);
         if(profiles) profiles.forEach(p=>{profileMap[p.id]=p;});
       }
       if(cancelled)return;
-      const mapped=streams.map(s=>mapStream(s,profileMap));
-      setRealStreams(mapped);
-      setFeatured(f=>{
-        if(mapped.length>0&&(!f.isReal||!mapped.find(r=>r.id===f.id)))return mapped[0];
-        return f;
-      });
+      const mapped=(rows||[]).map(s=>mapStreamRow(s,profileMap));
+      setStreams(mapped);
+      setFeatured(f=>{if(mapped.length>0&&(!f?.isReal||!mapped.find(r=>r.id===f.id)))return mapped[0];return f||null;});
+      setLoading(false);
     };
     load();
-    const channel=supabase
-      .channel("homefeed_streams")
-      .on("postgres_changes",{event:"*",schema:"public",table:"streams"},()=>load())
-      .subscribe();
-    return()=>{cancelled=true;supabase.removeChannel(channel);};
-  },[]); // eslint-disable-line
+    const ch=supabase.channel("homefeed_streams").on("postgres_changes",{event:"*",schema:"public",table:"streams"},()=>load()).subscribe();
+    return()=>{cancelled=true;supabase.removeChannel(ch);};
+  },[]);
 
-  const allStreams=[
-    ...realStreams,
-    ...STREAMS.filter(m=>!realStreams.some(r=>r.streamer===m.streamer)),
-  ];
-  const streams=cat==="All"?allStreams:allStreams.filter(s=>s.cat===cat);
+  const filtered=cat==="All"?streams:streams.filter(s=>s.cat===cat);
 
   return(
     <div style={{width:"100%",minWidth:0,boxSizing:"border-box",overflowX:"hidden",padding:0,margin:0}}>
-      {/* Featured banner */}
-      <div style={{position:"relative",height:300,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(featured)}>
-        <div style={{position:"absolute",inset:0,background:featured.thumbnail?`url(${featured.thumbnail}) center/cover`:`linear-gradient(160deg,${featured.bg||"#0D0A20"},#000)`}}/>
-        <div style={{position:"absolute",top:-40,right:-40,width:300,height:300,borderRadius:"50%",background:`${featured.col||C.cyan}20`,filter:"blur(60px)"}}/>
-        {!featured.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing"><Av ch={featured.av} sz={90} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/></div></div>}
-        <div style={{position:"absolute",inset:0,background:"linear-gradient(transparent 30%,rgba(0,0,0,.94))"}}/>
-        <div style={{position:"absolute",top:14,left:14}}><LiveBadge viewers={featured.viewers}/></div>
-        <div style={{position:"absolute",top:14,right:14}}>
-          <span className="tag" style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}35`,fontSize:11,padding:"4px 10px"}}>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><Ico n="zap" s={10} c={C.gold}/>{featured.isReal?"🔴 LIVE NOW":"TOP STREAM"}</span>
-          </span>
-        </div>
-        <div style={{position:"absolute",bottom:16,left:18,right:18}}>
-          <div style={{fontWeight:800,fontSize:20,lineHeight:1.3,marginBottom:8,color:"#fff"}}>{featured.title}</div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {featured.avatar_url?<img src={featured.avatar_url} style={{width:28,height:28,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={featured.av} sz={28} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/>}
-            <span style={{fontSize:13,color:"rgba(255,255,255,.8)",fontWeight:600}}>{featured.streamer}</span>
-            {featured.verified&&<Ico n="check" s={12} c={C.amber}/>}
+      {featured?(
+        <div style={{position:"relative",height:300,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(featured)}>
+          <div style={{position:"absolute",inset:0,background:featured.thumbnail?`url(${featured.thumbnail}) center/cover no-repeat`:`linear-gradient(160deg,${featured.col}33,#000)`}}/>
+          <div style={{position:"absolute",top:-40,right:-40,width:300,height:300,borderRadius:"50%",background:`${featured.col||C.cyan}20`,filter:"blur(60px)"}}/>
+          {!featured.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing"><Av ch={featured.av} sz={90} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/></div></div>}
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(transparent 30%,rgba(0,0,0,.94))"}}/>
+          <div style={{position:"absolute",top:14,left:14}}><LiveBadge viewers={featured.viewers}/></div>
+          <div style={{position:"absolute",top:14,right:14}}><span className="tag" style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}35`,fontSize:11,padding:"4px 10px"}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}><Ico n="zap" s={10} c={C.gold}/>🔴 LIVE NOW</span></span></div>
+          <div style={{position:"absolute",bottom:16,left:18,right:18}}>
+            <div style={{fontWeight:800,fontSize:20,lineHeight:1.3,marginBottom:8,color:"#fff"}}>{featured.title}</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {featured.avatar_url?<img src={featured.avatar_url} style={{width:28,height:28,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={featured.av} sz={28} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/>}
+              <span style={{fontSize:13,color:"rgba(255,255,255,.85)",fontWeight:600}}>{featured.streamer}</span>
+            </div>
           </div>
         </div>
-      </div>
-      {/* Category filter */}
+      ):(
+        <div style={{height:200,background:`linear-gradient(160deg,${C.surf},#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
+          {loading?<><div className="spin" style={{width:32,height:32,border:`3px solid ${C.border}`,borderTopColor:C.cyan,borderRadius:"50%",display:"inline-block"}}/><div style={{fontSize:13,color:C.muted}}>Loading streams...</div></>
+          :<><div className="icoFloat" style={{display:"flex"}}><Ico n="mic" s={48} c={C.muted}/></div><div style={{fontWeight:700,fontSize:18,color:C.muted}}>No one is live right now</div><div style={{fontSize:13,color:C.muted,marginTop:4}}>Be the first — go live from the Studio tab!</div></>}
+        </div>
+      )}
       <div className="sx" style={{padding:"12px 0 0",display:"flex",gap:8}}>
-        {CATS.map(c=>(
-          <button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}18`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap"}}>{c}</button>
-        ))}
+        {CATS.map(c=>(<button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}18`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap"}}>{c}</button>))}
       </div>
-      {/* Stream grid */}
       <div className="grid">
-        {streams.map(s=><StreamCard key={s.id} s={s} fmt={fmt} onClick={()=>onStream(s)} onViewProfile={onViewProfile}/>)}
-        {streams.length===0&&(
+        {filtered.map(s=><StreamCard key={s.id} s={s} fmt={fmt} onClick={()=>onStream(s)} onViewProfile={onViewProfile}/>)}
+        {!loading&&filtered.length===0&&(
           <div style={{gridColumn:"1/-1",textAlign:"center",padding:"60px 0",color:C.muted}}>
             <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:12}}><Ico n="search" s={48} c={C.muted}/></div>
-            <div style={{fontWeight:700,fontSize:18}}>No streams found</div>
-            <div style={{fontSize:14,marginTop:6}}>Try a different category</div>
+            <div style={{fontWeight:700,fontSize:18}}>{cat==="All"?"No live streams right now":"No live streams in this category"}</div>
+            <div style={{fontSize:14,marginTop:6}}>{cat==="All"?"Check back soon or go live yourself!":"Try a different category"}</div>
           </div>
         )}
-      </div>
-      {/* Premium row */}
-      <div style={{padding:"4px 0 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}><Ico n="lock" s={15} c={C.purple}/><span className="exo" style={{fontWeight:900,fontSize:13}}>PREMIUM VIDEOS</span></div>
-        <span style={{fontSize:11,color:C.purple,fontWeight:700}}>Subscribe to unlock</span>
-      </div>
-      <div className="sx" style={{padding:"0 0 20px",display:"flex",gap:14}}>
-        {STREAMS.slice(0,6).map((s,i)=>(
-          <div key={s.id} style={{flexShrink:0,width:200,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"transform .18s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-3px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-            <div style={{height:110,background:`linear-gradient(160deg,${s.bg},#111)`,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <Av ch={s.av} sz={36} g={`linear-gradient(135deg,${s.col},${C.purple})`}/>
-              <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ico n="lock" s={28} c="rgba(255,255,255,.45)"/></div>
-              <div style={{position:"absolute",top:7,right:7}}><div className="tag" style={{background:`${C.purple}40`,color:"#d8b4ff",fontSize:9,border:`1px solid ${C.purple}30`}}>PREMIUM</div></div>
-              <div style={{position:"absolute",bottom:7,right:7,background:"rgba(0,0,0,.7)",borderRadius:6,padding:"2px 6px",fontSize:9,color:"rgba(255,255,255,.65)"}}>{["12:34","45:00","1:02:10","28:45","36:20","52:11"][i]}</div>
-            </div>
-            <div style={{padding:"9px 10px 11px"}}>
-              <div style={{fontSize:12,fontWeight:700,lineHeight:1.35,marginBottom:4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>Exclusive premium content for subscribers only</div>
-              <div style={{fontSize:10,color:C.muted}}>{s.streamer} · from {fmt(s.sp.m)}/mo</div>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -903,19 +831,42 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
 /* ═══════════════════ SEARCH PAGE ═══════════════════ */
 const SearchPage=({onStream,initialSearch=""})=>{
   const [q,setQ]=useState(initialSearch);
-  const results=q?STREAMS.filter(s=>s.streamer.toLowerCase().includes(q.toLowerCase())||s.title.toLowerCase().includes(q.toLowerCase())||s.cat.toLowerCase().includes(q.toLowerCase())):[];
+  const [results,setResults]=useState([]);
+  const [searching,setSearching]=useState(false);
   const cols=[C.cyan,C.purple,C.amber,C.emerald,C.gold,C.pink,C.sky,C.cyan,C.purple,C.amber,C.emerald,C.gold,C.pink,C.sky,C.cyan,C.purple];
+
+  useEffect(()=>{
+    if(!q.trim()){setResults([]);return;}
+    setSearching(true);
+    const timer=setTimeout(async()=>{
+      const {data:rows}=await supabase.from("streams")
+        .select("id,title,category,viewer_count,is_live,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+        .or(`title.ilike.%${q}%,category.ilike.%${q}%,streamer_name.ilike.%${q}%`)
+        .order("is_live",{ascending:false}).order("viewer_count",{ascending:false}).limit(20);
+      const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
+      let profileMap={};
+      if(ids.length>0){
+        const {data:profiles}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",ids);
+        if(profiles) profiles.forEach(p=>{profileMap[p.id]=p;});
+      }
+      setResults((rows||[]).map(s=>mapStreamRow(s,profileMap)));
+      setSearching(false);
+    },400);
+    return()=>clearTimeout(timer);
+  },[q]);
+
   return(
     <div style={{padding:"20px 20px 40px"}} className="page">
       <div className="exo" style={{fontSize:22,fontWeight:900,marginBottom:16}}>Discover</div>
       <input className="inp" placeholder="Search streamers, titles, categories..." value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:20,fontSize:15}}/>
-      {q&&results.length>0&&(
+      {searching&&<div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:13}}>Searching...</div>}
+      {!searching&&q&&results.length>0&&(
         <div style={{marginBottom:24}}>
           <div className="exo" style={{fontSize:11,color:C.muted,marginBottom:12,fontWeight:700}}>RESULTS ({results.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {results.map(s=>(
               <div key={s.id} className="card" onClick={()=>onStream(s)} style={{padding:"12px",display:"flex",gap:12,alignItems:"center",cursor:"pointer"}}>
-                <Av ch={s.av} sz={44} g={`linear-gradient(135deg,${s.col},${C.purple})`}/>
+                {s.avatar_url?<img src={s.avatar_url} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={s.av} sz={44} g={`linear-gradient(135deg,${s.col},${C.purple})`}/>}
                 <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{s.streamer}</div><div style={{fontSize:12,color:C.muted,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{s.title}</div></div>
                 {s.live&&<LiveBadge viewers={s.viewers}/>}
               </div>
@@ -923,7 +874,7 @@ const SearchPage=({onStream,initialSearch=""})=>{
           </div>
         </div>
       )}
-      {q&&results.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="search" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>No results for "{q}"</div></div>}
+      {!searching&&q&&results.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="search" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>No results for "{q}"</div></div>}
       {!q&&<>
         <div className="exo" style={{fontSize:11,color:C.muted,marginBottom:14,fontWeight:800,letterSpacing:1.5}}>BROWSE CATEGORIES</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:10}}>
@@ -954,7 +905,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [showViewerCount,setShowViewerCount]=useState(true);const [allowComments,setAllowComments]=useState(true);
   const [giftNotifs,setGiftNotifs]=useState(true);const [slowMode,setSlowMode]=useState(false);
   const [isMuted,setIsMuted]=useState(false);const [copied,setCopied]=useState(false);
-  const [shareLink]=useState(window.location.origin+"?stream=live_"+(user?.id||"demo"));
+  const [shareLink,setShareLink]=useState("");
   const videoRef=useRef();
   const liveVideoRef=useRef();
   const timerRef=useRef();const chatRef=useRef();
@@ -967,6 +918,13 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       .catch(()=>setStreamError("Camera not available. Check permissions."));
     return()=>{stream?.getTracks().forEach(t=>t.stop());};
   },[]);
+
+  // Load scheduled streams from Supabase
+  useEffect(()=>{
+    if(!user)return;
+    supabase.from("streams").select("id,title,scheduled_at").eq("streamer_id",user.id).eq("is_live",false).not("scheduled_at","is",null).gte("scheduled_at",new Date().toISOString()).order("scheduled_at",{ascending:true})
+      .then(({data})=>{if(data)setScheduledStreams(data.map(s=>({id:s.id,title:s.title,time:s.scheduled_at})));});
+  },[user]);
 
   useEffect(()=>{if(!isLive)return;timerRef.current=window.setInterval(()=>setSecs(s=>s+1),1000);return()=>window.clearInterval(timerRef.current);},[isLive]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[studioChat]);
@@ -1102,6 +1060,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       if(!localVideoTrack.current&&result.localVideoTrack)localVideoTrack.current=result.localVideoTrack;
       if(!localAudioTrack.current&&result.localAudioTrack)localAudioTrack.current=result.localAudioTrack;
       setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
+      setShareLink(`${window.location.origin}?stream=${supabaseStreamId}`);
       setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
     } else {
       await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
@@ -1141,7 +1100,15 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   };
   const addTag=()=>{if(tagInput.trim()&&tags.length<5&&!tags.includes(tagInput.trim())){setTags(t=>[...t,tagInput.trim()]);setTagInput("");}};
   const copyLink=()=>{navigator.clipboard.writeText(shareLink);setCopied(true);window.setTimeout(()=>setCopied(false),2000);};
-  const scheduleStream=()=>{if(!schedTitle||!scheduledTime){alert("Please fill in title and time.");return;}if(new Date(scheduledTime)<=new Date()){alert("Please choose a future date and time.");return;}setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:Date.now()}]);setSchedTitle("");setScheduledTime("");};
+  const scheduleStream=async()=>{
+    if(!schedTitle||!scheduledTime){alert("Please fill in title and time.");return;}
+    if(new Date(scheduledTime)<=new Date()){alert("Please choose a future date and time.");return;}
+    if(!user){alert("You must be signed in.");return;}
+    const {data,error}=await supabase.from("streams").insert({streamer_id:user.id,streamer_name:user.email?.split("@")[0]||"Streamer",title:schedTitle,category:cat||"General",is_live:false,scheduled_at:new Date(scheduledTime).toISOString(),viewer_count:0,gift_total:0}).select("id").single();
+    if(error){alert("Could not save schedule: "+error.message);return;}
+    setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:data?.id||Date.now()}]);
+    setSchedTitle("");setScheduledTime("");
+  };
   const activeTabs=isLive?["stream","chat","analytics","settings"]:["setup","schedule","analytics","settings"];
   const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users"};
 
@@ -1304,17 +1271,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         </div>}
 
         {/* ANALYTICS TAB */}
-        {studioTab==="analytics"&&<div style={{maxWidth:640}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12,marginBottom:20}}>
-            {[["eye","Total Views","12.4K",C.cyan],["users","Followers","2,341",C.purple],["gift","Total Gifts",fmt(4820),C.gold],["activity","Avg Watch Time","8m 42s",C.emerald],["trending","Peak Viewers","1,204",C.amber],["star","Rating","4.9 ⭐",C.pink]].map(([icon,label,val,col],i)=>(
-              <div key={i} className="card" style={{padding:"16px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n={icon} s={24} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:20,color:col}}>{val}</div><div style={{fontSize:11,color:darkMode?C.muted:"#555",marginTop:4,fontWeight:600}}>{label}</div></div>
-            ))}
-          </div>
-          <div className="card" style={{padding:"18px",marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14}}>Recent Streams</div><span style={{fontSize:11,color:C.muted}}>Last 30 days</span></div>
-            {[["FIFA Finals 2026",31000,fmt(12400),"2h 14m","Gaming"],["Tech Talk LIVE",8900,fmt(2100),"1h 45m","Tech"],["Afrobeats Night",14200,fmt(4820),"3h 02m","Music"],["Finance Tips",5600,fmt(1800),"55m","Finance"]].map(([t,v,g,d,c],i)=>(<div key={i} style={{display:"flex",gap:12,alignItems:"center",padding:"12px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}><div style={{width:42,height:42,borderRadius:10,background:`${C.cyan}15`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="play" s={16} c={C.cyan}/></div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{(v/1000).toFixed(1)}K viewers · {d} · {c}</div></div><div style={{textAlign:"right",flexShrink:0}}><div className="exo" style={{color:C.gold,fontWeight:800,fontSize:13}}>{g}</div><div style={{fontSize:10,color:C.muted}}>earned</div></div></div>))}
-          </div>
-        </div>}
+        {studioTab==="analytics"&&user&&<StudioAnalytics user={user} fmt={fmt} darkMode={darkMode} streamId={streamId} viewers={viewers} giftTotal={giftTotal}/>}
 
         {/* SETTINGS TAB */}
         {studioTab==="settings"&&<div style={{maxWidth:520}}>
@@ -1330,125 +1287,167 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   );
 };
 
+/* ═══════════════════ STUDIO ANALYTICS (real data) ═══════════════════ */
+const StudioAnalytics=({user,fmt,darkMode,streamId,viewers,giftTotal})=>{
+  const [recentStreams,setRecentStreams]=useState([]);
+  const [subCount,setSubCount]=useState(0);
+  const [totalViews,setTotalViews]=useState(0);
+  useEffect(()=>{
+    if(!user)return;
+    supabase.from("streams").select("id,title,category,viewer_count,gift_total,started_at,ended_at").eq("streamer_id",user.id).order("started_at",{ascending:false}).limit(10)
+      .then(({data})=>{if(data){setRecentStreams(data);setTotalViews(data.reduce((s,r)=>s+(r.viewer_count||0),0));}});
+    supabase.from("subscriptions").select("id",{count:"exact"}).eq("streamer_id",user.id).eq("status","active")
+      .then(({count})=>{if(count!=null)setSubCount(count);});
+  },[user]);
+  const fmtDur=(s,e)=>{if(!s||!e)return"—";const m=Math.round((new Date(e)-new Date(s))/60000);return m>=60?`${Math.floor(m/60)}h ${m%60}m`:`${m}m`;};
+  return(
+    <div style={{maxWidth:640}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12,marginBottom:20}}>
+        {[[["eye","Watching Now",viewers.toLocaleString(),C.cyan],["users","Subscribers",subCount.toLocaleString(),C.purple],["gift","Gifts This Stream",fmt(giftTotal),C.gold],["trending","Total Views",totalViews>=1000?`${(totalViews/1000).toFixed(1)}K`:totalViews.toString(),C.amber]]].flat().map(([icon,label,val,col],i)=>(
+          <div key={i} className="card" style={{padding:"16px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n={icon} s={24} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:20,color:col}}>{val}</div><div style={{fontSize:11,color:darkMode?C.muted:"#555",marginTop:4,fontWeight:600}}>{label}</div></div>
+        ))}
+      </div>
+      <div className="card" style={{padding:"18px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>Your Streams</div><span style={{fontSize:11,color:C.muted}}>Last 10</span></div>
+        {recentStreams.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:13}}>No past streams yet</div>}
+        {recentStreams.map((s,i)=>(
+          <div key={s.id} style={{display:"flex",gap:12,alignItems:"center",padding:"12px 0",borderBottom:i<recentStreams.length-1?`1px solid ${C.border}`:"none"}}>
+            <div style={{width:42,height:42,borderRadius:10,background:`${C.cyan}15`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="play" s={16} c={C.cyan}/></div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:darkMode?C.text:"#0F0F0F"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{(s.viewer_count||0).toLocaleString()} viewers · {fmtDur(s.started_at,s.ended_at)} · {s.category||"General"}</div></div>
+            <div style={{textAlign:"right",flexShrink:0}}><div className="exo" style={{color:C.gold,fontWeight:800,fontSize:13}}>{fmt((s.gift_total||0)*.9)}</div><div style={{fontSize:10,color:C.muted}}>earned</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 /* ═══════════════════ DASH PAGE ═══════════════════ */
-const DashPage=({fmt,darkMode=true})=>{
+const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
   const [tab,setTab]=useState("overview");
-  const [period,setPeriod]=useState("7d");
-  const periods=["24h","7d","30d","90d","All time"];
-  const earnings={"24h":{total:120,gifts:80,subs:40,withdrawn:0,pending:120},"7d":{total:840,gifts:560,subs:280,withdrawn:500,pending:340},"30d":{total:3200,gifts:2100,subs:1100,withdrawn:2000,pending:1200},"90d":{total:12400,gifts:8200,subs:4200,withdrawn:8000,pending:4400},"All time":{total:49800,gifts:32000,subs:17800,withdrawn:40000,pending:9800}};
-  const e=earnings[period];
+  const [earnings,setEarnings]=useState({total:0,gifts:0,subscriptions:0,giftCount:0,subCount:0});
+  const [recentGifters,setRecentGifters]=useState([]);
+  const [recentStreams,setRecentStreams]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [payoutAccount,setPayoutAccount]=useState("");
+  const [savingPayout,setSavingPayout]=useState(false);
+
+  useEffect(()=>{
+    if(!user||!isStreamer){setLoading(false);return;}
+    const load=async()=>{
+      const {getEarnings}=await import("./lib/payments");
+      const e=await getEarnings(user.id);
+      setEarnings(e);
+      // Recent streams
+      const {data:streams}=await supabase.from("streams").select("id,title,category,viewer_count,gift_total,started_at,ended_at").eq("streamer_id",user.id).order("started_at",{ascending:false}).limit(5);
+      if(streams)setRecentStreams(streams);
+      // Top gifters
+      const {data:gifts}=await supabase.from("gifts").select("sender_id,amount_usd,sender_username").eq("receiver_id",user.id).order("amount_usd",{ascending:false}).limit(20);
+      if(gifts){
+        const agg={};
+        gifts.forEach(g=>{const k=g.sender_username||g.sender_id||"Anonymous";agg[k]=(agg[k]||0)+(g.amount_usd||0);});
+        setRecentGifters(Object.entries(agg).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,amt])=>({name,amt})));
+      }
+      // Load payout account from profile
+      const {data:profile}=await supabase.from("profiles").select("payout_account").eq("id",user.id).single();
+      if(profile?.payout_account)setPayoutAccount(profile.payout_account);
+      setLoading(false);
+    };
+    load();
+  },[user,isStreamer]);
+
+  const savePayout=async()=>{
+    if(!payoutAccount.trim()){alert("Enter your payout account.");return;}
+    setSavingPayout(true);
+    await supabase.from("profiles").update({payout_account:payoutAccount}).eq("id",user.id);
+    setSavingPayout(false);
+    alert("Payout account saved!");
+  };
+
+  if(!user)return(
+    <div style={{padding:"40px 20px",textAlign:"center"}} className="page">
+      <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:16}}><Ico n="barchart" s={56} c={C.muted}/></div>
+      <div className="exo" style={{fontSize:22,fontWeight:900,marginBottom:8}}>Your Earnings</div>
+      <div style={{fontSize:14,color:C.muted,marginBottom:20}}>Sign in to see your revenue and analytics</div>
+      <button className="btn btnC" style={{padding:"12px 28px",fontSize:15}} onClick={onSignIn}>Sign In</button>
+    </div>
+  );
+  if(!isStreamer)return(
+    <div style={{padding:"40px 20px",textAlign:"center"}} className="page">
+      <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:16}}><Ico n="trending" s={56} c={C.muted}/></div>
+      <div className="exo" style={{fontSize:22,fontWeight:900,marginBottom:8}}>Start Earning</div>
+      <div style={{fontSize:14,color:C.muted,marginBottom:20}}>Become a streamer to track your revenue and analytics</div>
+    </div>
+  );
+  if(loading)return(<div style={{padding:"60px 20px",textAlign:"center",color:C.muted}} className="page"><div className="spin" style={{width:32,height:32,border:`3px solid ${C.border}`,borderTopColor:C.cyan,borderRadius:"50%",display:"inline-block",marginBottom:12}}/><div>Loading earnings...</div></div>);
+
+  const giftPct=earnings.total>0?Math.round(earnings.gifts/earnings.total*100):0;
+  const subPct=earnings.total>0?Math.round(earnings.subscriptions/earnings.total*100):0;
+  const fmtDur=(s,e)=>{if(!s||!e)return"—";const m=Math.round((new Date(e)-new Date(s))/60000);return m>=60?`${Math.floor(m/60)}h ${m%60}m`:`${m}m`;};
+
   return(
     <div style={{padding:"24px 20px 40px"}} className="page">
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:20}}>
-        <div><div className="exo" style={{fontSize:22,fontWeight:900}}>Earnings</div><div style={{fontSize:12,color:darkMode?C.muted:"#555",marginTop:2}}>Your revenue, stats and payouts</div></div>
-        <div style={{display:"flex",gap:4,background:C.card2,borderRadius:12,padding:4}}>
-          {periods.map(p=>(<button key={p} onClick={()=>setPeriod(p)} style={{padding:"5px 10px",borderRadius:9,border:"none",background:period===p?C.card:"transparent",color:period===p?C.cyan:C.muted,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>{p}</button>))}
-        </div>
-      </div>
-      {/* Balance card */}
+      <div style={{marginBottom:20}}><div className="exo" style={{fontSize:22,fontWeight:900}}>Earnings</div><div style={{fontSize:12,color:darkMode?C.muted:"#555",marginTop:2}}>Your revenue, stats and payouts</div></div>
       <div className="card" style={{padding:"20px",marginBottom:16,background:`linear-gradient(135deg,${C.emerald}15,${C.cyan}08)`,border:`1px solid ${C.emerald}30`,maxWidth:700}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-          <div><div style={{fontSize:13,fontWeight:700,color:darkMode?C.text:"#0F0F0F"}}>Available Balance</div><div style={{fontSize:11,color:darkMode?C.muted:"#555"}}>Ready to withdraw</div></div>
-          <div className="exo" style={{fontSize:32,fontWeight:900,color:C.emerald}}>{fmt(e.pending)}</div>
-          <button className="btn btnC" style={{padding:"10px 20px",fontSize:13}}>Withdraw via Card or Mobile Money</button>
+          <div><div style={{fontSize:13,fontWeight:700,color:darkMode?C.text:"#0F0F0F"}}>Total Earned (All Time)</div><div style={{fontSize:11,color:darkMode?C.muted:"#555"}}>{earnings.giftCount} gifts · {earnings.subCount} subscriptions</div></div>
+          <div className="exo" style={{fontSize:32,fontWeight:900,color:C.emerald}}>{fmt(earnings.total)}</div>
         </div>
       </div>
-      {/* Earning card */}
-      <div style={{background:`linear-gradient(135deg,${C.amber}28,${C.purple}18)`,border:`1px solid ${C.amber}28`,borderRadius:20,padding:"24px",marginBottom:20,position:"relative",overflow:"hidden",maxWidth:700}}>
-        <div style={{position:"absolute",right:-30,top:-30,width:160,height:160,borderRadius:"50%",background:`${C.amber}12`,filter:"blur(30px)"}}/>
-        <div style={{fontSize:11,color:darkMode?"rgba(255,255,255,.6)":"#666",fontFamily:"Exo 2",fontWeight:800,marginBottom:4}}>{period.toUpperCase()}</div>
-        <div className="exo" style={{fontSize:40,fontWeight:900,marginBottom:4,color:darkMode?C.text:"#0F0F0F"}}>{fmt(e.total)}</div>
-        <div style={{fontSize:13,color:darkMode?"rgba(255,255,255,.65)":"#444"}}>↑ 34% from previous period</div>
-        <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
-          {[["gift","Gifts",fmt(e.gifts)],["star","Subs",fmt(e.subs)],["video","PPV",fmt(e.total*.1)]].map(([icon,l,v])=>(
-            <div key={l} style={{background:"rgba(0,0,0,.28)",borderRadius:12,padding:"10px 16px",textAlign:"center"}}>
-              <div className="icoGlow" style={{display:"flex",justifyContent:"center",marginBottom:4}}><Ico n={icon} s={16} c={C.gold}/></div>
-              <div className="exo" style={{fontWeight:900,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>{v}</div>
-              <div style={{fontSize:10,opacity:.65,marginTop:2,color:darkMode?"inherit":"#555"}}>{l}</div>
-            </div>
-          ))}
-        </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20,maxWidth:700}}>
+        {[["gift","Gift Revenue",fmt(earnings.gifts),C.gold],["star","Sub Revenue",fmt(earnings.subscriptions),C.purple],["users","Active Subs",earnings.subCount.toString(),C.cyan],["trophy","Total Gifts",earnings.giftCount.toString(),C.amber]].map(([icon,label,val,col],i)=>(
+          <div key={i} className="card" style={{padding:"16px"}}>
+            <div style={{display:"flex",marginBottom:8}}><Ico n={icon} s={22} c={col}/></div>
+            <div className="exo statVal" style={{fontSize:20,fontWeight:900,color:col}}>{val}</div>
+            <div style={{fontSize:12,color:darkMode?C.muted:"#555",marginTop:2}}>{label}</div>
+          </div>
+        ))}
       </div>
-      {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:20,background:C.card2,borderRadius:14,padding:4,maxWidth:400}}>
-        {["overview","gifters","videos"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",transition:"all .2s",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
+        {["overview","gifters","streams"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",transition:"all .2s",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
       </div>
-      {tab==="overview"&&<div className="page">
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:14,marginBottom:20,maxWidth:700}}>
-          {[["users","Subscribers","348","+28"],["eye","Total Views","1.2M","+15%"],["activity","Stream Hrs","84h","This month"],["star","Rating","4.9","2.1K reviews"]].map(([icon,label,val,sub],i)=>(
-            <div key={i} className="card" style={{padding:"16px"}}>
-              <div className="icoRise" style={{display:"flex",marginBottom:8}}><Ico n={icon} s={24} c={[C.emerald,C.amber,C.purple,C.cyan][i]}/></div>
-              <div className="exo statVal" style={{fontSize:22,fontWeight:900,color:darkMode?C.text:"#0F0F0F"}}>{val}</div>
-              <div style={{fontSize:12,color:darkMode?C.muted:"#555"}}>{label}</div>
-              <div style={{fontSize:12,color:C.emerald,marginTop:4,fontWeight:700}}>{sub}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700}}>
-          <div className="card" style={{padding:"18px"}}>
-            <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14,color:darkMode?C.text:"#0F0F0F"}}>Revenue Breakdown</div>
-            {[["Gifts",C.amber,34],["Subscriptions",C.purple,58],["Pay-Per-View",C.cyan,8]].map(([label,col,pct])=>(
+      {tab==="overview"&&<div style={{maxWidth:700}}>
+        <div className="card" style={{padding:"18px",marginBottom:14}}>
+          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14,color:darkMode?C.text:"#0F0F0F"}}>Revenue Breakdown</div>
+          {earnings.total===0?<div style={{color:C.muted,fontSize:13}}>No revenue yet. Go live and receive gifts!</div>:<>
+            {[["Gifts",C.gold,giftPct],["Subscriptions",C.purple,subPct]].map(([label,col,pct])=>(
               <div key={label} style={{marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
-                  <span style={{fontWeight:600,color:darkMode?C.text:"#0F0F0F"}}>{label}</span>
-                  <span style={{color:col,fontWeight:700}}>{pct}%</span>
-                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}><span style={{fontWeight:600,color:darkMode?C.text:"#0F0F0F"}}>{label}</span><span style={{color:col,fontWeight:700}}>{pct}%</span></div>
                 <PBar pct={pct} color={col}/>
               </div>
             ))}
-          </div>
-          <div className="card" style={{padding:"18px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div><div className="exo" style={{fontWeight:800,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>Available Balance</div><div style={{fontSize:12,color:darkMode?C.muted:"#555"}}>Ready to withdraw</div></div>
-              <div className="exo" style={{fontSize:24,fontWeight:900,color:C.emerald}}>{fmt(e.pending)}</div>
-            </div>
-            <button className="btn btnC" style={{width:"100%",padding:"13px",fontSize:14}}>Withdraw via Card or Mobile Money</button>
-          </div>
+          </>}
+        </div>
+        <div className="card" style={{padding:"18px"}}>
+          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:12,color:darkMode?C.text:"#0F0F0F"}}>Payout Account</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Mobile money number or bank account for withdrawals</div>
+          <div style={{display:"flex",gap:8}}><input className="inp" value={payoutAccount} onChange={e=>setPayoutAccount(e.target.value)} placeholder="e.g. +233 XX XXX XXXX or account number" style={{flex:1,fontSize:13}}/><button className="btn btnC" style={{padding:"0 16px",fontSize:13,flexShrink:0,opacity:savingPayout?.6:1}} onClick={savePayout}>{savingPayout?"Saving...":"Save"}</button></div>
         </div>
       </div>}
-      {tab==="gifters"&&<div className="page">
-        <div className="card" style={{padding:"18px",maxWidth:500}}>
-          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14,color:darkMode?C.text:"#0F0F0F"}}>Top Gifters This Month</div>
-          {[["trophy","Kwame B.",1200],["award","Adwoa M.",850],["zap","Kofi A.",620],["star","Nana K.",410],["activity","Ama S.",280]].map(([badge,name,amt],i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<4?`1px solid ${C.border}`:"none"}}>
-              <span className="icoGlow" style={{width:30,display:"flex",alignItems:"center"}}><Ico n={badge} s={20} c={i===0?C.gold:i===1?C.muted:C.amber}/></span>
+      {tab==="gifters"&&<div style={{maxWidth:500}}>
+        <div className="card" style={{padding:"18px"}}>
+          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14,color:darkMode?C.text:"#0F0F0F"}}>Top Gifters</div>
+          {recentGifters.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:13}}>No gifts received yet</div>}
+          {recentGifters.map(({name,amt},i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<recentGifters.length-1?`1px solid ${C.border}`:"none"}}>
+              <span className="icoGlow" style={{width:30,display:"flex",alignItems:"center"}}><Ico n={["trophy","award","zap","star","activity"][i]||"star"} s={20} c={i===0?C.gold:i===1?C.muted:C.amber}/></span>
               <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>{name}</div><div style={{fontSize:11,color:darkMode?C.muted:"#555"}}>#{i+1} top gifter</div></div>
-              <div><div className="exo" style={{fontWeight:900,color:C.gold,fontSize:14}}>{fmt(amt)}</div><PBar pct={Math.round(amt/12)} color={C.gold} h={3}/></div>
+              <div><div className="exo" style={{fontWeight:900,color:C.gold,fontSize:14}}>{fmt(amt)}</div></div>
             </div>
           ))}
         </div>
       </div>}
-      {tab==="videos"&&<div className="page" style={{maxWidth:700}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div className="exo" style={{fontWeight:800,fontSize:16,color:darkMode?C.text:"#0F0F0F"}}>Premium Videos</div>
-          <button className="btn btnC" style={{padding:"8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:6}}><Ico n="upload" s={13} c="#06060F"/>Upload Video</button>
-        </div>
-        {STREAMS.slice(0,5).map((s,i)=>(
-          <div key={i} className="card" style={{padding:"13px",marginBottom:10,display:"flex",gap:12,alignItems:"center",cursor:"pointer"}}>
-            <div style={{width:90,height:60,borderRadius:10,background:`linear-gradient(135deg,${s.bg},#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative"}}>
-              <Ico n="play" s={22} c="rgba(255,255,255,.85)"/>
-              {i<2&&<div style={{position:"absolute",top:4,left:4,background:`${C.gold}DD`,borderRadius:5,padding:"1px 5px",fontSize:9,fontWeight:900,color:"#000"}}>PREMIUM</div>}
+      {tab==="streams"&&<div style={{maxWidth:700}}>
+        <div className="card" style={{padding:"18px"}}>
+          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14,color:darkMode?C.text:"#0F0F0F"}}>Recent Streams</div>
+          {recentStreams.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:13}}>No streams yet. Go live from the Studio tab!</div>}
+          {recentStreams.map((s,i)=>(
+            <div key={s.id} style={{display:"flex",gap:12,alignItems:"center",padding:"12px 0",borderBottom:i<recentStreams.length-1?`1px solid ${C.border}`:"none"}}>
+              <div style={{width:42,height:42,borderRadius:10,background:`${C.cyan}15`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="play" s={16} c={C.cyan}/></div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:darkMode?C.text:"#0F0F0F"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{(s.viewer_count||0).toLocaleString()} viewers · {fmtDur(s.started_at,s.ended_at)} · {s.category||"General"}</div></div>
+              <div style={{textAlign:"right",flexShrink:0}}><div className="exo" style={{color:C.gold,fontWeight:800,fontSize:13}}>{fmt((s.gift_total||0)*.9)}</div><div style={{fontSize:10,color:C.muted}}>earned</div></div>
             </div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:darkMode?C.text:"#0F0F0F"}}>{s.title}</div>
-              <div style={{display:"flex",gap:12,fontSize:11,color:darkMode?C.muted:"#555"}}>
-                <span style={{display:"flex",alignItems:"center",gap:4}}><Ico n="eye" s={11} c={darkMode?C.muted:"#555"}/>{(s.viewers/1000).toFixed(1)}K views</span>
-                <span style={{display:"flex",alignItems:"center",gap:4}}><Ico n="coins" s={11} c={C.gold}/>{fmt(s.gifts*.1)} earned</span>
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-              <div className="exo" style={{fontSize:13,color:C.amber,fontWeight:800}}>#{i+1}</div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={e=>{e.stopPropagation();}} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 8px",cursor:"pointer",display:"flex"}}><Ico n="edit" s={12} c={C.muted}/></button>
-                <button onClick={e=>{e.stopPropagation();}} style={{background:"#FF2D2D18",border:"1px solid #FF2D2D30",borderRadius:8,padding:"4px 8px",cursor:"pointer",display:"flex"}}><Ico n="close" s={12} c="#FF6060"/></button>
-              </div>
-            </div>
-          </div>
-        ))}
-        <div style={{padding:"20px",textAlign:"center",color:C.muted,fontSize:13,background:C.card,borderRadius:14,border:`2px dashed ${C.border2}`,cursor:"pointer"}} onClick={()=>alert("Upload a new premium video")}>
-          <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n="upload" s={28} c={C.muted}/></div>
-          <div style={{fontWeight:700}}>Upload New Premium Video</div>
-          <div style={{fontSize:11,marginTop:4}}>MP4, MOV up to 2GB · Subscribers only</div>
+          ))}
         </div>
       </div>}
     </div>
@@ -1553,6 +1552,36 @@ const BecomeStreamer=({fmt,onBack,onComplete,user,currency="USD"})=>{
 };
 
 /* ═══════════════════ PROFILE PAGE ═══════════════════ */
+/* ═══════════════════ PROFILE STATS ═══════════════════ */
+const ProfileStats=({userId,isStreamer,fmt})=>{
+  const [stats,setStats]=useState({followers:0,following:0,streams:0});
+  useEffect(()=>{
+    if(!userId)return;
+    Promise.all([
+      supabase.from("follows").select("id",{count:"exact"}).eq("following_id",userId),
+      supabase.from("follows").select("id",{count:"exact"}).eq("follower_id",userId),
+      supabase.from("streams").select("id",{count:"exact"}).eq("streamer_id",userId),
+    ]).then(([{count:followers},{count:following},{count:streams}])=>{
+      setStats({followers:followers||0,following:following||0,streams:streams||0});
+    });
+  },[userId]);
+  const items=[
+    [stats.followers.toLocaleString(),"Followers"],
+    [stats.following.toLocaleString(),"Following"],
+    [stats.streams.toLocaleString(),"Streams"],
+  ];
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:12,marginBottom:24}}>
+      {items.map(([v,l],i)=>(
+        <div key={i} className="card" style={{padding:"14px",textAlign:"center"}}>
+          <div className="exo" style={{fontWeight:900,fontSize:18,color:C.text}}>{v}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{l}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
   const [editing,setEditing]=useState(false);
   const [saved,setSaved]=useState(false);
@@ -1624,14 +1653,7 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
           </div>
         </div>
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:12,marginBottom:24}}>
-          {[["23.4K","Followers"],["142","Videos"],[fmt(12480),"Earned"]].map(([v,l],i)=>(
-            <div key={i} className="card" style={{padding:"14px",textAlign:"center"}}>
-              <div className="exo" style={{fontWeight:900,fontSize:18,color:i===2?C.gold:C.text}}>{v}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{l}</div>
-            </div>
-          ))}
-        </div>
+        <ProfileStats userId={user?.id} isStreamer={isStreamer} fmt={fmt}/>
         {/* Bio */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
           <div>
@@ -1749,18 +1771,51 @@ const AuthModal=({onClose,onLogin})=>(
 /* ═══════════════════ STREAMER PUBLIC PROFILE ═══════════════════ */
 const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>{
   const [subscribed,setSubscribed]=useState(false);
+  const [following,setFollowing]=useState(false);
   const [showSub,setShowSub]=useState(false);
   const [tab,setTab]=useState("streams");
-  const streams=STREAMS.filter(s=>s.streamer===streamer.streamer);
-  const allStreams=streams.length?streams:STREAMS.slice(0,3);
+  const [streamerStreams,setStreamerStreams]=useState([]);
+  const [followerCount,setFollowerCount]=useState(0);
+  const streamerId=streamer.streamer_id||streamer.id;
+
+  useEffect(()=>{
+    if(!streamerId)return;
+    // Load real streams for this streamer
+    supabase.from("streams").select("id,title,category,viewer_count,is_live,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+      .eq("streamer_id",streamerId).order("started_at",{ascending:false}).limit(10)
+      .then(({data})=>{if(data)setStreamerStreams(data.map(s=>mapStreamRow(s)));});
+    // Follower count
+    supabase.from("follows").select("id",{count:"exact"}).eq("following_id",streamerId)
+      .then(({count})=>{if(count!=null)setFollowerCount(count);});
+  },[streamerId]);
+
+  useEffect(()=>{
+    if(!user||!streamerId)return;
+    supabase.from("follows").select("id").eq("follower_id",user.id).eq("following_id",streamerId).single()
+      .then(({data})=>{if(data)setFollowing(true);});
+    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",streamerId).eq("status","active").single()
+      .then(({data})=>{if(data)setSubscribed(true);});
+  },[user,streamerId]);
+
+  const toggleFollow=async()=>{
+    if(!user){onAuthRequired();return;}
+    if(following){
+      await supabase.from("follows").delete().eq("follower_id",user.id).eq("following_id",streamerId);
+      setFollowing(false);setFollowerCount(c=>Math.max(0,c-1));
+    } else {
+      await supabase.from("follows").insert({follower_id:user.id,following_id:streamerId});
+      setFollowing(true);setFollowerCount(c=>c+1);
+    }
+  };
+
   return(
     <div style={{paddingBottom:60}} className="page">
-      {showSub&&<SubModal stream={{...streamer,id:streamer.streamer_id||streamer.id}} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={()=>{setSubscribed(true);setShowSub(false);}} user={user} currency={cur?.code||"USD"}/>}
+      {showSub&&<SubModal stream={{...streamer,id:streamerId}} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={()=>{setSubscribed(true);setShowSub(false);}} user={user} currency={cur?.code||"USD"}/>}
       <div style={{height:180,background:`linear-gradient(135deg,${streamer.col}30,${streamer.bg||"#0D0A20"})`,position:"relative"}}>
         <button onClick={onBack} style={{position:"absolute",top:14,left:14,background:"rgba(0,0,0,.5)",border:"none",borderRadius:10,padding:"8px",cursor:"pointer",display:"flex",backdropFilter:"blur(6px)"}}><Ico n="back" s={18} c="#fff"/></button>
         <div style={{position:"absolute",bottom:-40,left:24}}>
           <div className="avRing">
-            {streamer.avatar_url?<img src={streamer.avatar_url} style={{width:80,height:80,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={streamer.av} sz={80} g={`linear-gradient(135deg,${streamer.col},${C.purple})`}/>}
+            {streamer.avatar_url?<img src={streamer.avatar_url} style={{width:80,height:80,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={streamer.av} sz={80} g={`linear-gradient(135deg,${streamer.col},${C.purple})`}/>}
           </div>
         </div>
       </div>
@@ -1773,11 +1828,14 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
             </div>
             <div style={{fontSize:13,color:C.muted,marginTop:4}}>{streamer.cat} Creator</div>
             <div style={{display:"flex",gap:20,marginTop:12}}>
-              {[[(((streamer.viewers||0)/1000).toFixed(1)+"K"),"Viewers"],[fmt((streamer.gifts||0)*.9),"Earned"],["348","Followers"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
+              {[[(((streamer.viewers||0)/1000).toFixed(1)+"K"),"Viewers"],[followerCount.toLocaleString(),"Followers"],[streamerStreams.length.toString(),"Streams"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
             </div>
           </div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {streamer.live&&<button className="btn btnR" style={{padding:"10px 18px",fontSize:13,display:"flex",alignItems:"center",gap:6}} onClick={()=>onStream(streamer)}><div className="liveDot" style={{width:6,height:6}}/>Watch Live</button>}
+            <button className={`btn ${following?"btnS":"btnC"}`} style={{padding:"10px 18px",fontSize:13}} onClick={toggleFollow}>
+              {following?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c={C.text} sw={3}/>Following</span>:"Follow"}
+            </button>
             <button className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"10px 18px",fontSize:13}} onClick={()=>{if(!user){onAuthRequired();return;}if(subscribed)return;setShowSub(true);}}>
               {subscribed?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c="#06060F" sw={3}/>Subscribed</span>:"Subscribe"}
             </button>
@@ -1787,10 +1845,13 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
           {["streams","about"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"8px",borderRadius:9,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
         </div>
         {tab==="streams"&&<div>
-          {allStreams.map((s,i)=>(
+          {streamerStreams.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="mic" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>No streams yet</div></div>}
+          {streamerStreams.map((s,i)=>(
             <div key={i} className="card" style={{padding:"13px",marginBottom:10,display:"flex",gap:12,alignItems:"center",cursor:"pointer"}} onClick={()=>onStream(s)}>
-              <div style={{width:70,height:48,borderRadius:10,background:`linear-gradient(135deg,${s.bg},#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{s.live?<div className="liveDot"/>:<Ico n="play" s={18} c="rgba(255,255,255,.6)"/>}</div>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:3}}>{(s.viewers/1000).toFixed(1)}K viewers · {s.cat}</div></div>
+              <div style={{width:70,height:48,borderRadius:10,background:`linear-gradient(135deg,${s.col}33,#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}}>
+                {s.thumbnail?<img src={s.thumbnail} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:s.live?<div className="liveDot"/>:<Ico n="play" s={18} c={C.muted}/>}
+              </div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:3}}>{(s.viewers||0).toLocaleString()} viewers · {s.cat}</div></div>
               {s.live&&<div className="liveBadge" style={{flexShrink:0}}><div className="liveDot"/>LIVE</div>}
             </div>
           ))}
@@ -1823,13 +1884,7 @@ export default function App(){
   const [showNotifs,setShowNotifs]=useState(false);
   const [showCurrencyPicker,setShowCurrencyPicker]=useState(false);
   const [viewingProfile,setViewingProfile]=useState(null);
-  const [notifications,setNotifications]=useState([
-    {id:1,type:"gift",msg:"KofiBeats sent you a Star gift",time:"2m ago",read:false,icon:"star"},
-    {id:2,type:"sub",msg:"Ama_G subscribed to your channel",time:"14m ago",read:false,icon:"users"},
-    {id:3,type:"live",msg:"TechWithAma just went live",time:"1h ago",read:true,icon:"bell"},
-    {id:4,type:"gift",msg:"Nana_K sent you a Diamond gift",time:"2h ago",read:true,icon:"diamond"},
-    {id:5,type:"sub",msg:"Kofi_A subscribed — monthly plan",time:"3h ago",read:true,icon:"users"},
-  ]);
+  const [notifications,setNotifications]=useState([]);
   const [viewing,setViewing]=useState(null);
   const [isStreamer,setIsStreamer]=useState(()=>localStorage.getItem("gift3rs_is_streamer")==="true");
   const [showBecome,setShowBecome]=useState(false);
@@ -1842,6 +1897,20 @@ export default function App(){
   useEffect(()=>{const handler=(e)=>{if(!e.target.closest("[data-dropdown]")){setShowNotifs(false);setShowCurrencyPicker(false);setShowMenu(false);}};document.addEventListener("mousedown",handler);return()=>document.removeEventListener("mousedown",handler);},[]);
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
+
+  // Open stream from share link (?stream=UUID)
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const streamId=params.get("stream");
+    if(!streamId)return;
+    supabase.from("streams").select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually").eq("id",streamId).single()
+      .then(({data})=>{
+        if(data){
+          supabase.from("profiles").select("display_name,username,avatar_url").eq("id",data.streamer_id).single()
+            .then(({data:profile})=>{setViewing(mapStreamRow(data,profile?{[data.streamer_id]:profile}:{}));});
+        }
+      });
+  },[]);
   const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},{id:"dash",icon:"trending",label:"EARN"},{id:"prof",icon:"profile",label:"PROFILE"}];
   if(viewingProfile&&!viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<StreamerProfile streamer={viewingProfile} fmt={fmt} onBack={()=>setViewingProfile(null)} onStream={s=>{setViewingProfile(null);setViewing(s);}} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur}/></>);
   if(viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<LiveViewer stream={viewing} fmt={fmt} onBack={()=>setViewing(null)} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur} onViewProfile={s=>{setViewing(null);setViewingProfile(s);}}/></>);
@@ -1898,7 +1967,7 @@ export default function App(){
         {tab==="home"&&<HomeFeed fmt={fmt} onStream={s=>setViewing(s)} onViewProfile={s=>setViewingProfile(s)}/>}
         {tab==="search"&&<SearchPage onStream={s=>setViewing(s)} initialSearch={search}/>}
         {tab==="live"&&<GoLivePage fmt={fmt} isStreamer={isStreamer} onBecomeStreamer={()=>setShowBecome(true)} user={user} darkMode={darkMode}/>}
-        {tab==="dash"&&<DashPage fmt={fmt} darkMode={darkMode}/>}
+        {tab==="dash"&&<DashPage fmt={fmt} darkMode={darkMode} user={user} isStreamer={isStreamer} onSignIn={()=>setShowAuth(true)}/>}
         {tab==="prof"&&<ProfilePage fmt={fmt} isStreamer={isStreamer} user={user} onSignIn={()=>setShowAuth(true)} onSignOut={()=>supabase.auth.signOut()} onAvatarSaved={url=>setTopAvatar(url)}/>}
       </div>
       <nav className="mobileNav">
