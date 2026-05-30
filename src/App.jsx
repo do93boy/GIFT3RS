@@ -529,9 +529,9 @@ const SubModal=({stream,fmt,onClose,onSubscribed,user,currency="USD"})=>{
 const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [chat,setChat]=useState([]);
   const [msg,setMsg]=useState("");
-  const [liked,setLiked]=useState(()=>{try{const savedLikes=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return !!savedLikes[stream.id];}catch(_e){return false;}});
-  // Shared like total — baseline from DB (streams.likes), then live deltas via broadcast
-  const [likes,setLikes]=useState(stream.likes||0);
+  const [liked,setLiked]=useState(false);
+  // Shared like total — baseline from stream_likes (count), live deltas via broadcast
+  const [likes,setLikes]=useState(0);
   const [pinnedMsg,setPinnedMsg]=useState(null);
   const isHost=!!(user&&stream.streamer_id&&user.id===stream.streamer_id);
   const [showGift,setShowGift]=useState(false);
@@ -574,6 +574,20 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     if(!user||!stream.id)return;
     supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.streamer_id||stream.id).eq("status","active").limit(1).then(({data})=>{setSubscribed(!!(data&&data.length));});
   },[user,stream.id]);
+
+  // ── Likes: count + this user's like state, persisted in stream_likes ──────
+  const fetchLikeCount=useCallback(async()=>{
+    if(!stream.id||typeof stream.id!=="string")return;
+    const {count,error}=await supabase.from("stream_likes").select("id",{count:"exact",head:true}).eq("stream_id",stream.id);
+    if(!error&&count!=null)setLikes(count);
+  },[stream.id]);
+  useEffect(()=>{
+    fetchLikeCount();
+    if(user&&stream.id&&typeof stream.id==="string"){
+      supabase.from("stream_likes").select("id").eq("stream_id",stream.id).eq("user_id",user.id).limit(1)
+        .then(({data})=>{setLiked(!!(data&&data.length));});
+    }
+  },[stream.id,user,fetchLikeCount]);
 
   // Fullscreen change listener
   useEffect(()=>{
@@ -665,10 +679,8 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
       });
     bcastRef.current=ch;
     // Keep the shared like total in sync with the DB (best-effort; needs a `likes` column)
-    const likePoll=setInterval(async()=>{
-      const {data}=await supabase.from("streams").select("likes").eq("id",stream.id).single();
-      if(data&&typeof data.likes==="number")setLikes(data.likes);
-    },10000);
+    // Re-sync the authoritative like count every 8s (covers viewers who joined/left)
+    const likePoll=setInterval(()=>{fetchLikeCount();},8000);
     return()=>{supabase.removeChannel(ch);clearInterval(likePoll);bcastRef.current=null;};
   },[stream.id]); // eslint-disable-line
 
@@ -732,20 +744,22 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     }
   };
 
-  // ── Likes — toggle, broadcast delta, persist to DB (best-effort) ──────────
-  const persistLikeDelta=async(delta)=>{
-    const {data}=await supabase.from("streams").select("likes").eq("id",stream.id).single();
-    if(data&&typeof data.likes==="number"){
-      await supabase.from("streams").update({likes:Math.max(0,data.likes+delta)}).eq("id",stream.id).then(null,null);
-    }
-  };
-  const toggleLike=()=>{
+  // ── Likes — persisted in stream_likes (one row per user), shared live ─────
+  const toggleLike=async()=>{
     if(!user){onAuthRequired&&onAuthRequired();return;}
+    if(typeof stream.id!=="string"){return;}
     const next=!liked;const delta=next?1:-1;
-    setLiked(next);setLikes(l=>Math.max(0,l+delta));
-    bcastRef.current?.send({type:"broadcast",event:"like",payload:{delta}});
-    if(typeof stream.id==="string")persistLikeDelta(delta);
-    try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");if(next)ls[stream.id]=true;else delete ls[stream.id];localStorage.setItem("gift3rs_likes",JSON.stringify(ls));}catch(e){console.error(e);}
+    setLiked(next);setLikes(l=>Math.max(0,l+delta));            // optimistic
+    bcastRef.current?.send({type:"broadcast",event:"like",payload:{delta}}); // everyone updates live
+    if(next){
+      const {error}=await supabase.from("stream_likes").insert({stream_id:stream.id,user_id:user.id});
+      if(error){ // revert on failure (e.g., already liked / table missing)
+        if(error.message&&!/duplicate|unique/i.test(error.message)){setLiked(false);setLikes(l=>Math.max(0,l-1));}
+        fetchLikeCount();
+      }
+    }else{
+      await supabase.from("stream_likes").delete().eq("stream_id",stream.id).eq("user_id",user.id).then(null,null);
+    }
   };
 
   // ── Host moderation: pin / unpin / delete / like a comment ────────────────
@@ -1240,6 +1254,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [studioTab,setStudioTab]=useState("setup");
   const [chatMsg,setChatMsg]=useState("");const [studioChat,setStudioChat]=useState([]);
   const [studioGifts,setStudioGifts]=useState([]);const [studioSubs,setStudioSubs]=useState([]);
+  const [likeTotal,setLikeTotal]=useState(0);
   const [studioPinned,setStudioPinned]=useState(null);
   const [subscribersList,setSubscribersList]=useState([]);
   const [myName,setMyName]=useState(user?.email?.split("@")[0]||"Streamer");
@@ -1386,6 +1401,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         else if(payload.action==="delete"){setStudioChat(c=>c.filter(m=>(m.id||"")!==payload.id));setStudioPinned(p=>p&&p.id===payload.id?null:p);}
         else if(payload.action==="like")setStudioChat(c=>c.map(m=>m.id===payload.id?{...m,likes:(m.likes||0)+1}:m));
       })
+      // Live likes — streamer sees the count rise in real time
+      .on("broadcast",{event:"like"},({payload})=>{setLikeTotal(l=>Math.max(0,l+(payload?.delta||1)));})
       .on("presence",{event:"sync"},()=>{
         const state=bcastCh.presenceState();
         let count=0;Object.values(state).forEach(arr=>arr.forEach(m=>{if(m.role!=="streamer")count++;}));
@@ -1395,6 +1412,11 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       .subscribe(async(status)=>{ if(status==="SUBSCRIBED"){ await bcastCh.track({role:"streamer",name:myName,avatar:myAvatar}); } });
     studioBcastRef.current=bcastCh;
 
+    // Authoritative like count from stream_likes (baseline + periodic re-sync)
+    const fetchLikes=async()=>{const {count,error}=await supabase.from("stream_likes").select("id",{count:"exact",head:true}).eq("stream_id",streamId);if(!error&&count!=null)setLikeTotal(count);};
+    fetchLikes();
+    const likeInt=setInterval(fetchLikes,8000);
+
     // FALLBACK: postgres_changes for gifts (also feeds the Gifts panel)
     const pgGiftCh=supabase.channel("pg_studio_gifts_"+streamId)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:"stream_id=eq."+streamId},p=>{
@@ -1402,7 +1424,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         setStudioGifts(g=>{if(g.find(x=>x.pg_id===d.id))return g;return [{u:d.sender_username||"Someone",emoji:d.emoji||"gift",amount:d.amount_usd||0,msg:d.message,id:Date.now(),pg_id:d.id},...g.slice(0,49)];});
       }).subscribe();
 
-    return()=>{ supabase.removeChannel(bcastCh);supabase.removeChannel(pgGiftCh);studioBcastRef.current=null; };
+    return()=>{ supabase.removeChannel(bcastCh);supabase.removeChannel(pgGiftCh);clearInterval(likeInt);studioBcastRef.current=null; };
   },[isLive,streamId,giftNotifs]); // eslint-disable-line
 
   const dur=String(Math.floor(secs/3600)).padStart(2,"0")+":"+String(Math.floor((secs%3600)/60)).padStart(2,"0")+":"+String(secs%60).padStart(2,"0");
@@ -1521,7 +1543,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     localVideoTrack.current=null;localAudioTrack.current=null;
     if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0}).eq("id",streamId);}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
-    setStudioGifts([]);setStudioSubs([]);setStudioPinned(null);setSharing(false);
+    setStudioGifts([]);setStudioSubs([]);setStudioPinned(null);setLikeTotal(0);setSharing(false);
     setThumbPreview("");setThumbFile(null);setCamOn(true);setMicOn(true);
     // Restart camera preview for the setup tab
     setTimeout(restartCameraPreview, 800);
@@ -1657,6 +1679,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
           <div style={{display:"flex",alignItems:"center",gap:6,background:"#FF2D2D18",border:"1px solid #FF2D2D40",borderRadius:10,padding:"6px 14px"}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,color:"#FF2D2D",fontSize:13}}>LIVE — {dur}</span></div>
           <div style={{display:"flex",alignItems:"center",gap:5,background:`${C.cyan}12`,border:`1px solid ${C.cyan}25`,borderRadius:10,padding:"6px 14px"}}><Ico n="eye" s={13} c={C.cyan}/><span className="exo" style={{fontWeight:900,color:C.cyan,fontSize:13}}>{viewers.toLocaleString()} watching</span></div>
           <div style={{display:"flex",alignItems:"center",gap:5,background:`${C.gold}12`,border:`1px solid ${C.gold}25`,borderRadius:10,padding:"6px 14px"}}><Ico n="gift" s={13} c={C.gold}/><span className="exo" style={{fontWeight:900,color:C.gold,fontSize:13}}>{fmt(giftTotal)}</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:5,background:"#FF2D2D12",border:"1px solid #FF2D2D33",borderRadius:10,padding:"6px 14px"}}><Ico n="heart" s={13} c="#FF6060"/><span className="exo" style={{fontWeight:900,color:"#FF6060",fontSize:13}}>{fmtCount(likeTotal)}</span></div>
         </div>}
       </div>
 
