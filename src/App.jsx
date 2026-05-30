@@ -1263,6 +1263,11 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [subscribersList,setSubscribersList]=useState([]);
   const [myName,setMyName]=useState(user?.email?.split("@")[0]||"Streamer");
   const [myAvatar,setMyAvatar]=useState("");
+  // Premium videos
+  const [myVideos,setMyVideos]=useState([]);
+  const [vidTitle,setVidTitle]=useState("");const [vidDesc,setVidDesc]=useState("");
+  const [vidFile,setVidFile]=useState(null);const [vidThumb,setVidThumb]=useState(null);
+  const [vidPremium,setVidPremium]=useState(true);const [uploadingVid,setUploadingVid]=useState(false);const [vidProgress,setVidProgress]=useState("");
   const [sharing,setSharing]=useState(false);const [shareMode,setShareMode]=useState("both");
   const [quality,setQuality]=useState("1080p");const [tags,setTags]=useState([]);const [tagInput,setTagInput]=useState("");
   const [scheduledStreams,setScheduledStreams]=useState([]);const [schedTitle,setSchedTitle]=useState("");const [scheduledTime,setScheduledTime]=useState("");
@@ -1315,6 +1320,47 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setSubscribersList(subs.map(s=>({...s,name:pmap[s.subscriber_id]?.display_name||pmap[s.subscriber_id]?.username||"Subscriber",avatar:pmap[s.subscriber_id]?.avatar_url||""})));
   },[user]);
   useEffect(()=>{loadSubscribers();},[loadSubscribers,studioSubs.length]);
+
+  // ── Premium videos: load / upload / delete ────────────────────────────────
+  const loadMyVideos=useCallback(async()=>{
+    if(!user)return;
+    const {data}=await supabase.from("videos").select("*").eq("streamer_id",user.id).order("created_at",{ascending:false});
+    if(data)setMyVideos(data);
+  },[user]);
+  useEffect(()=>{loadMyVideos();},[loadMyVideos]);
+
+  const uploadVideo=async()=>{
+    if(!user){alert("You must be signed in.");return;}
+    if(!vidTitle.trim()){alert("Enter a video title.");return;}
+    if(!vidFile){alert("Choose a video file.");return;}
+    setUploadingVid(true);setVidProgress("Uploading video…");
+    try{
+      const ext=vidFile.name.split(".").pop();
+      const vpath="videos/"+user.id+"_"+Date.now()+"."+ext;
+      const {error:upErr}=await supabase.storage.from("gift3rs-media").upload(vpath,vidFile,{upsert:true,contentType:vidFile.type});
+      if(upErr){alert("Video upload failed: "+upErr.message);setUploadingVid(false);setVidProgress("");return;}
+      const {data:vurl}=supabase.storage.from("gift3rs-media").getPublicUrl(vpath);
+      let thumbUrl=null;
+      if(vidThumb){
+        setVidProgress("Uploading thumbnail…");
+        const text=vidThumb.name.split(".").pop();
+        const tpath="video-thumbs/"+user.id+"_"+Date.now()+"."+text;
+        const {error:tErr}=await supabase.storage.from("gift3rs-media").upload(tpath,vidThumb,{upsert:true,contentType:vidThumb.type});
+        if(!tErr){const {data:turl}=supabase.storage.from("gift3rs-media").getPublicUrl(tpath);thumbUrl=turl.publicUrl;}
+      }
+      setVidProgress("Saving…");
+      const {error:insErr}=await supabase.from("videos").insert({streamer_id:user.id,title:vidTitle.trim(),description:vidDesc.trim()||null,video_url:vurl.publicUrl,thumbnail_url:thumbUrl,is_premium:vidPremium});
+      if(insErr){alert("Could not save video: "+insErr.message+"\n\n(Ask the admin to create the 'videos' table.)");setUploadingVid(false);setVidProgress("");return;}
+      setVidTitle("");setVidDesc("");setVidFile(null);setVidThumb(null);setVidPremium(true);
+      await loadMyVideos();
+    }catch(e){alert("Upload error: "+(e?.message||e));}
+    setUploadingVid(false);setVidProgress("");
+  };
+  const deleteVideo=async(id)=>{
+    if(!window.confirm("Delete this video?"))return;
+    await supabase.from("videos").delete().eq("id",id);
+    await loadMyVideos();
+  };
 
   // Load the streamer's own name + avatar so we can broadcast it via presence
   useEffect(()=>{
@@ -1648,8 +1694,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:data?.id||Date.now()}]);
     setSchedTitle("");setScheduledTime("");
   };
-  const activeTabs=isLive?["stream","gifts","subs","chat","analytics","settings"]:["setup","schedule","subs","analytics","settings"];
-  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users",gifts:"gift",subs:"star"};
+  const activeTabs=isLive?["stream","gifts","subs","chat","analytics","settings"]:["setup","videos","schedule","subs","analytics","settings"];
+  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users",gifts:"gift",subs:"star",videos:"video"};
 
   if(!isStreamer)return(
     <div style={{padding:"24px 20px"}} className="page">
@@ -1829,6 +1875,30 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
               </div>
             ))}
           </div>
+        </div>}
+
+        {/* VIDEOS TAB — upload premium / public videos */}
+        {studioTab==="videos"&&<div style={{maxWidth:600}}>
+          <div className="card" style={{padding:"18px",marginBottom:16}}>
+            <div style={{fontWeight:800,fontSize:15,marginBottom:14,display:"flex",alignItems:"center",gap:8}}><Ico n="video" s={16} c={C.purple}/>Post a Video</div>
+            <div style={{marginBottom:12}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>TITLE *</label><input className="inp" value={vidTitle} onChange={e=>setVidTitle(e.target.value)} placeholder="Video title..." maxLength={120}/></div>
+            <div style={{marginBottom:12}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>DESCRIPTION</label><textarea className="inp" rows={2} value={vidDesc} onChange={e=>setVidDesc(e.target.value)} placeholder="What's this video about?" style={{resize:"none"}}/></div>
+            <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+              <div style={{flex:"1 1 200px"}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>VIDEO FILE *</label><input type="file" accept="video/*" onChange={e=>setVidFile(e.target.files[0]||null)} style={{fontSize:12,color:C.muted,width:"100%"}}/>{vidFile&&<div style={{fontSize:11,color:C.emerald,marginTop:4}}>{vidFile.name}</div>}</div>
+              <div style={{flex:"1 1 200px"}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>THUMBNAIL <span style={{fontWeight:400}}>(optional)</span></label><input type="file" accept="image/*" onChange={e=>setVidThumb(e.target.files[0]||null)} style={{fontSize:12,color:C.muted,width:"100%"}}/></div>
+            </div>
+            <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:8}}><Ico n="lock" s={13} c={C.purple}/>Subscribers-Only (Premium)</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{vidPremium?"Only your subscribers can watch":"Everyone can watch this video"}</div></div><Toggle on={vidPremium} onChange={()=>setVidPremium(v=>!v)}/></div>
+            <button className="btn btnP" style={{padding:"12px 20px",fontSize:14,width:"100%",opacity:vidTitle&&vidFile&&!uploadingVid?1:.5}} onClick={uploadVideo} disabled={uploadingVid||!vidTitle||!vidFile}>{uploadingVid?(vidProgress||"Uploading…"):"Upload Video"}</button>
+          </div>
+          <div className="exo" style={{fontWeight:800,fontSize:12,color:C.muted,letterSpacing:1,marginBottom:10}}>YOUR VIDEOS ({myVideos.length})</div>
+          {myVideos.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No videos yet. Upload premium content for your subscribers!</div>}
+          {myVideos.map(v=>(
+            <div key={v.id} className="card" style={{padding:"12px",marginBottom:8,display:"flex",gap:12,alignItems:"center"}}>
+              <div style={{width:64,height:40,borderRadius:8,overflow:"hidden",flexShrink:0,background:C.card2,display:"flex",alignItems:"center",justifyContent:"center"}}>{v.thumbnail_url?<img src={v.thumbnail_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Ico n="video" s={16} c={C.muted}/>}</div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.title}</div><div style={{fontSize:11,marginTop:2}}>{v.is_premium?<span style={{color:C.purple,fontWeight:700}}>● Premium</span>:<span style={{color:C.emerald,fontWeight:700}}>● Public</span>}</div></div>
+              <button onClick={()=>deleteVideo(v.id)} style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:8,padding:"6px 10px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,flexShrink:0}}>Delete</button>
+            </div>
+          ))}
         </div>}
 
         {/* SUBSCRIBERS TAB */}
@@ -2560,24 +2630,27 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
   const [subscribed,setSubscribed]=useState(false);
   const [following,setFollowing]=useState(false);
   const [showSub,setShowSub]=useState(false);
-  const [tab,setTab]=useState("streams");
-  const [streamerStreams,setStreamerStreams]=useState([]);
+  const [tab,setTab]=useState("live");
+  const [liveStreams,setLiveStreams]=useState([]);
+  const [videos,setVideos]=useState([]);
+  const [playing,setPlaying]=useState(null);
   const [followerCount,setFollowerCount]=useState(0);
   const [subCount,setSubCount]=useState(0);
+  const [prof,setProf]=useState(null);
   const streamerId=streamer.streamer_id||streamer.id;
 
   useEffect(()=>{
     if(!streamerId)return;
-    // Load real streams for this streamer
-    supabase.from("streams").select("*")
-      .eq("streamer_id",streamerId).order("started_at",{ascending:false}).limit(10)
-      .then(({data})=>{if(data)setStreamerStreams(data.map(s=>mapStreamRow(s)));});
-    // Follower count
-    supabase.from("follows").select("id",{count:"exact"}).eq("following_id",streamerId)
-      .then(({count})=>{if(count!=null)setFollowerCount(count);});
-    // Active subscriber count
-    supabase.from("subscriptions").select("id",{count:"exact"}).eq("streamer_id",streamerId).eq("status","active")
-      .then(({count})=>{if(count!=null)setSubCount(count);});
+    // Full profile (banner, bio, location, links, prices, avatar, verified)
+    supabase.from("profiles").select("*").eq("id",streamerId).limit(1).then(({data})=>{if(data&&data[0])setProf(data[0]);});
+    // Only CURRENTLY LIVE streams — never show ended/past streams
+    supabase.from("streams").select("*").eq("streamer_id",streamerId).eq("is_live",true).order("started_at",{ascending:false})
+      .then(({data})=>{if(data)setLiveStreams(data.map(s=>mapStreamRow(s)));});
+    // Premium / public videos (metadata only — no video_url, so premium URLs aren't exposed)
+    supabase.from("videos").select("id,streamer_id,title,description,thumbnail_url,is_premium,created_at").eq("streamer_id",streamerId).order("created_at",{ascending:false})
+      .then(({data})=>{if(data)setVideos(data);});
+    supabase.from("follows").select("id",{count:"exact"}).eq("following_id",streamerId).then(({count})=>{if(count!=null)setFollowerCount(count);});
+    supabase.from("subscriptions").select("id",{count:"exact"}).eq("streamer_id",streamerId).eq("status","active").then(({count})=>{if(count!=null)setSubCount(count);});
   },[streamerId]);
 
   useEffect(()=>{
@@ -2599,14 +2672,46 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
     }
   };
 
+  // Display values: prefer the full profile, fall back to the passed streamer object
+  const name=prof?.display_name||prof?.username||streamer.streamer||"Streamer";
+  const avatar=prof?.avatar_url||streamer.avatar_url||"";
+  const cover=prof?.cover_url||"";
+  const bio=prof?.bio||"";
+  const location=prof?.location||"";
+  const links=Array.isArray(prof?.links)?prof.links:[];
+  const verified=!!(prof?.verified||prof?.is_streamer||prof?.fee_paid||streamer.verified);
+  const sp={w:prof?.sub_price_weekly||streamer.sp?.w||1.99,m:prof?.sub_price_monthly||streamer.sp?.m||5.99,a:prof?.sub_price_annually||streamer.sp?.a||49.99};
+  const subStream={...streamer,id:streamerId,streamer_id:streamerId,streamer:name,sp};
+
+  const playVideo=async(v)=>{
+    if(v.is_premium&&!subscribed){if(!user){onAuthRequired();return;}setShowSub(true);return;}
+    // Fetch the actual URL only when the viewer is allowed to watch
+    const {data}=await supabase.from("videos").select("video_url").eq("id",v.id).limit(1).then(r=>({data:r.data&&r.data[0]}));
+    if(data?.video_url)setPlaying({...v,video_url:data.video_url});
+    else alert("Video unavailable.");
+  };
+
   return(
     <div style={{paddingBottom:60}} className="page">
-      {showSub&&<SubModal stream={{...streamer,id:streamerId}} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={()=>{setSubscribed(true);setShowSub(false);}} user={user} currency={cur?.code||"USD"}/>}
-      <div style={{height:180,background:`linear-gradient(135deg,${streamer.col}30,${streamer.bg||"#0D0A20"})`,position:"relative"}}>
+      {showSub&&<SubModal stream={subStream} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={()=>{setSubscribed(true);setShowSub(false);}} user={user} currency={cur?.code||"USD"}/>}
+      {playing&&<div className="mOverlay" onClick={()=>setPlaying(null)}>
+        <div className="mBox" style={{maxWidth:820,padding:0,overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+          <video src={playing.video_url} controls autoPlay playsInline style={{width:"100%",display:"block",background:"#000",maxHeight:"70vh"}}/>
+          <div style={{padding:"14px 18px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+              <div className="exo" style={{fontWeight:800,fontSize:16}}>{playing.title}</div>
+              <button onClick={()=>setPlaying(null)} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:"50%",width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Ico n="close" s={13} c={C.muted}/></button>
+            </div>
+            {playing.description&&<div style={{fontSize:13,color:C.muted,marginTop:6,lineHeight:1.6}}>{playing.description}</div>}
+          </div>
+        </div>
+      </div>}
+      {/* Banner / cover */}
+      <div style={{height:180,background:cover?`url(${cover}) center/cover no-repeat`:`linear-gradient(135deg,${streamer.col}30,${streamer.bg||"#0D0A20"})`,position:"relative"}}>
         <button onClick={onBack} style={{position:"absolute",top:14,left:14,background:"rgba(0,0,0,.5)",border:"none",borderRadius:10,padding:"8px",cursor:"pointer",display:"flex",backdropFilter:"blur(6px)"}}><Ico n="back" s={18} c="#fff"/></button>
         <div style={{position:"absolute",bottom:-40,left:24}}>
           <div className="avRing">
-            {streamer.avatar_url?<img src={streamer.avatar_url} style={{width:80,height:80,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={streamer.av} sz={80} g={`linear-gradient(135deg,${streamer.col},${C.purple})`}/>}
+            {avatar?<img src={avatar} style={{width:80,height:80,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={(name[0]||"S").toUpperCase()} sz={80} g={`linear-gradient(135deg,${streamer.col},${C.purple})`}/>}
           </div>
         </div>
       </div>
@@ -2614,16 +2719,16 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:20}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div className="exo" style={{fontSize:22,fontWeight:900}}>{streamer.streamer}</div>
-              {streamer.verified&&<div style={{background:`${C.cyan}20`,borderRadius:6,padding:"2px 8px",fontSize:11,color:C.cyan,fontWeight:800}}>✓ VERIFIED</div>}
+              <div className="exo" style={{fontSize:22,fontWeight:900}}>{name}</div>
+              {verified&&<div style={{background:`${C.cyan}20`,borderRadius:6,padding:"2px 8px",fontSize:11,color:C.cyan,fontWeight:800}}>✓ VERIFIED</div>}
             </div>
-            <div style={{fontSize:13,color:C.muted,marginTop:4}}>{streamer.cat} Creator</div>
+            <div style={{fontSize:13,color:C.muted,marginTop:4}}>{streamer.cat} Creator{location?` · ${location}`:""}</div>
             <div style={{display:"flex",gap:20,marginTop:12}}>
-              {[[fmtCount(streamer.viewers||0),"Viewers"],[followerCount.toLocaleString(),"Followers"],[subCount.toLocaleString(),"Subscribers"],[streamerStreams.length.toString(),"Streams"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
+              {[[followerCount.toLocaleString(),"Followers"],[subCount.toLocaleString(),"Subscribers"],[liveStreams.length?"LIVE":"Offline","Status"],[videos.length.toString(),"Videos"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16,color:l==="Status"&&liveStreams.length?"#FF2D2D":undefined}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
             </div>
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {streamer.live&&<button className="btn btnR" style={{padding:"10px 18px",fontSize:13,display:"flex",alignItems:"center",gap:6}} onClick={()=>onStream(streamer)}><div className="liveDot" style={{width:6,height:6}}/>Watch Live</button>}
+            {liveStreams.length>0&&<button className="btn btnR" style={{padding:"10px 18px",fontSize:13,display:"flex",alignItems:"center",gap:6}} onClick={()=>onStream(liveStreams[0])}><div className="liveDot" style={{width:6,height:6}}/>Watch Live</button>}
             <button className={`btn ${following?"btnS":"btnC"}`} style={{padding:"10px 18px",fontSize:13}} onClick={toggleFollow}>
               {following?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c={C.text} sw={3}/>Following</span>:"Follow"}
             </button>
@@ -2632,30 +2737,58 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
             </button>
           </div>
         </div>
-        <div style={{display:"flex",gap:4,marginBottom:20,background:C.card2,borderRadius:12,padding:4,maxWidth:360}}>
-          {["streams","about"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"8px",borderRadius:9,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
+        <div style={{display:"flex",gap:4,marginBottom:20,background:C.card2,borderRadius:12,padding:4,maxWidth:420}}>
+          {["live","videos","about"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"8px",borderRadius:9,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
         </div>
-        {tab==="streams"&&<div>
-          {streamerStreams.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="mic" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>No streams yet</div></div>}
-          {streamerStreams.map((s,i)=>(
+
+        {/* LIVE tab — only current live streams */}
+        {tab==="live"&&<div>
+          {liveStreams.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="mic" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>Not live right now</div><div style={{fontSize:13,marginTop:4}}>Follow to get notified when {name} goes live.</div></div>}
+          {liveStreams.map((s,i)=>(
             <div key={i} className="card" style={{padding:"13px",marginBottom:10,display:"flex",gap:12,alignItems:"center",cursor:"pointer"}} onClick={()=>onStream(s)}>
               <div style={{width:70,height:48,borderRadius:10,background:`linear-gradient(135deg,${s.col}33,#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}}>
-                {s.thumbnail?<img src={s.thumbnail} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:s.live?<div className="liveDot"/>:<Ico n="play" s={18} c={C.muted}/>}
+                {s.thumbnail?<img src={s.thumbnail} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:<div className="liveDot"/>}
               </div>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:3}}>{(s.viewers||0).toLocaleString()} viewers · {s.cat}</div></div>
-              {s.live&&<div className="liveBadge" style={{flexShrink:0}}><div className="liveDot"/>LIVE</div>}
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div><div style={{fontSize:11,color:C.muted,marginTop:3}}>{(s.viewers||0).toLocaleString()} watching · {s.cat}</div></div>
+              <div className="liveBadge" style={{flexShrink:0}}><div className="liveDot"/>LIVE</div>
             </div>
           ))}
         </div>}
+
+        {/* VIDEOS tab — premium gated */}
+        {tab==="videos"&&<div>
+          {videos.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:10}}><Ico n="video" s={40} c={C.muted}/></div><div style={{fontWeight:700}}>No videos yet</div></div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
+            {videos.map(v=>{const locked=v.is_premium&&!subscribed;return(
+              <div key={v.id} className="card" style={{overflow:"hidden",cursor:"pointer"}} onClick={()=>playVideo(v)}>
+                <div style={{position:"relative",paddingTop:"56.25%",background:`linear-gradient(135deg,${streamer.col}33,#000)`}}>
+                  {v.thumbnail_url&&<img src={v.thumbnail_url} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",filter:locked?"blur(6px) brightness(.6)":"none"}}/>}
+                  <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <div style={{width:44,height:44,borderRadius:"50%",background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}><Ico n={locked?"lock":"play"} s={18} c="#fff"/></div>
+                  </div>
+                  {v.is_premium&&<div style={{position:"absolute",top:6,left:6,background:`${C.purple}`,borderRadius:6,padding:"2px 7px",fontSize:9,fontWeight:900,color:"#fff",fontFamily:"Exo 2"}}>PREMIUM</div>}
+                </div>
+                <div style={{padding:"8px 10px 10px"}}><div style={{fontSize:13,fontWeight:700,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{v.title}</div>{locked&&<div style={{fontSize:11,color:C.purple,marginTop:3,fontWeight:700}}>Subscribers only</div>}</div>
+              </div>
+            );})}
+          </div>
+        </div>}
+
+        {/* ABOUT tab — bio, location, links, sub plans */}
         {tab==="about"&&<div>
-          <div className="card" style={{padding:"18px",marginBottom:14}}>
+          {bio&&<div className="card" style={{padding:"16px",marginBottom:14}}><div style={{fontSize:10,color:C.muted,fontFamily:"Exo 2",fontWeight:800,letterSpacing:1,marginBottom:8}}>ABOUT</div><div style={{fontSize:14,color:C.text,lineHeight:1.7}}>{bio}</div></div>}
+          {(location||links.length>0)&&<div className="card" style={{padding:"16px",marginBottom:14}}>
+            {location&&<div style={{fontSize:14,color:C.muted,display:"flex",alignItems:"center",gap:6,marginBottom:links.length?12:0}}><Ico n="mappin" s={14} c={C.muted}/>{location}</div>}
+            {links.map((l,i)=>(<a key={i} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,color:C.cyan,textDecoration:"none",fontSize:14,fontWeight:600,marginBottom:8}}><Ico n="link" s={14} c={C.cyan}/>{l.label||l.url} ↗</a>))}
+          </div>}
+          <div className="card" style={{padding:"18px"}}>
             <div className="exo" style={{fontWeight:800,marginBottom:10}}>Subscription Plans</div>
-            {[["Weekly",streamer.sp?.w||2.99],["Monthly",streamer.sp?.m||9.99],["Annual",streamer.sp?.a||89.99]].map(([label,price])=>(
+            {[["Weekly",sp.w],["Monthly",sp.m],["Annual",sp.a]].map(([label,price])=>(
               <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
-                <div><div style={{fontWeight:700}}>{label}</div><div style={{fontSize:11,color:C.muted}}>Access all premium content</div></div>
+                <div><div style={{fontWeight:700}}>{label}</div><div style={{fontSize:11,color:C.muted}}>Access all premium videos &amp; perks</div></div>
                 <div style={{textAlign:"right"}}>
                   <div className="exo" style={{color:C.gold,fontWeight:900}}>{fmt(price)}</div>
-                  <button className="btn btnP" style={{padding:"5px 12px",fontSize:11,marginTop:4}} onClick={()=>{if(!user){onAuthRequired();return;}setShowSub(true);}}>Subscribe</button>
+                  {!subscribed&&<button className="btn btnP" style={{padding:"5px 12px",fontSize:11,marginTop:4}} onClick={()=>{if(!user){onAuthRequired();return;}setShowSub(true);}}>Subscribe</button>}
                 </div>
               </div>
             ))}
