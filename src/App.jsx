@@ -65,7 +65,7 @@ const mapStreamRow=(s,profileMap={})=>{
   const col=STREAM_COLS[parseInt((s.id||"0").toString().slice(-2)||"0",16)%STREAM_COLS.length]||C.cyan;
   return{
     id:s.id, streamer:name, av:(name[0]||"S").toUpperCase(),
-    title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0,
+    title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0, likes:s.likes||0,
     cat:s.category||"General", bg:"#0D0A20", col,
     verified:!!(profile.is_streamer||profile.fee_paid||profile.streamer_verified),
     live:s.is_live!==false,
@@ -265,6 +265,10 @@ body.light .grid{background:#F5F5F5 !important;}
 .liveWrap:fullscreen .liveStage{max-height:100vh;height:100vh;aspect-ratio:auto;}
 .liveWrap:fullscreen .liveChat{height:100vh;}
 .liveChatHidden{display:none!important;}
+/* Comment moderation buttons reveal on row hover */
+.chatRow .modBtns{opacity:0;transition:opacity .15s;}
+.chatRow:hover .modBtns{opacity:1!important;}
+@media(hover:none){.chatRow .modBtns{opacity:.6!important;}}
 /* Force Agora-injected elements to fill their container */
 .agora_video_player{width:100%!important;height:100%!important;position:absolute!important;inset:0!important;}
 .agora_video_player video{width:100%!important;height:100%!important;object-fit:cover!important;position:absolute!important;inset:0!important;}
@@ -525,8 +529,10 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [chat,setChat]=useState([]);
   const [msg,setMsg]=useState("");
   const [liked,setLiked]=useState(()=>{try{const savedLikes=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return !!savedLikes[stream.id];}catch(_e){return false;}});
-  // Start the count at 1 if this user already liked (their own like persists)
-  const [likes,setLikes]=useState(()=>{try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return ls[stream.id]?1:0;}catch(_e){return 0;}});
+  // Shared like total — baseline from DB (streams.likes), then live deltas via broadcast
+  const [likes,setLikes]=useState(stream.likes||0);
+  const [pinnedMsg,setPinnedMsg]=useState(null);
+  const isHost=!!(user&&stream.streamer_id&&user.id===stream.streamer_id);
   const [showGift,setShowGift]=useState(false);
   const [showSub,setShowSub]=useState(false);
   const [subscribed,setSubscribed]=useState(false);
@@ -629,7 +635,16 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
       // only the sender (locally) and the streamer (studio) hear it.
       .on("broadcast",{event:"gift"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
       .on("broadcast",{event:"sub"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
-      .on("broadcast",{event:"like"},()=>{setLikes(l=>l+1);})
+      // Live likes — everyone sees the count change in real time
+      .on("broadcast",{event:"like"},({payload})=>{setLikes(l=>Math.max(0,l+(payload?.delta||1)));})
+      // Host moderation: pin / unpin / delete / like a comment
+      .on("broadcast",{event:"mod"},({payload})=>{
+        if(!payload)return;
+        if(payload.action==="pin")setPinnedMsg(payload.msg||null);
+        else if(payload.action==="unpin")setPinnedMsg(null);
+        else if(payload.action==="delete"){setChat(c=>c.filter(m=>(m.id||"")!==payload.id));setPinnedMsg(p=>p&&p.id===payload.id?null:p);}
+        else if(payload.action==="like")setChat(c=>c.map(m=>m.id===payload.id?{...m,likes:(m.likes||0)+1}:m));
+      })
       .on("presence",{event:"sync"},()=>{
         const state=ch.presenceState();
         // count presences whose role is "viewer" (exclude the streamer)
@@ -638,11 +653,16 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
       })
       .subscribe(async(status)=>{
         if(status==="SUBSCRIBED"){
-          await ch.track({online_at:Date.now(),role:"viewer"});
+          await ch.track({online_at:Date.now(),role:isHost?"streamer":"viewer"});
         }
       });
     bcastRef.current=ch;
-    return()=>{supabase.removeChannel(ch);bcastRef.current=null;};
+    // Keep the shared like total in sync with the DB (best-effort; needs a `likes` column)
+    const likePoll=setInterval(async()=>{
+      const {data}=await supabase.from("streams").select("likes").eq("id",stream.id).single();
+      if(data&&typeof data.likes==="number")setLikes(data.likes);
+    },10000);
+    return()=>{supabase.removeChannel(ch);clearInterval(likePoll);bcastRef.current=null;};
   },[stream.id]); // eslint-disable-line
 
   useEffect(()=>{
@@ -705,6 +725,31 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     }
   };
 
+  // ── Likes — toggle, broadcast delta, persist to DB (best-effort) ──────────
+  const persistLikeDelta=async(delta)=>{
+    const {data}=await supabase.from("streams").select("likes").eq("id",stream.id).single();
+    if(data&&typeof data.likes==="number"){
+      await supabase.from("streams").update({likes:Math.max(0,data.likes+delta)}).eq("id",stream.id).then(null,null);
+    }
+  };
+  const toggleLike=()=>{
+    if(!user){onAuthRequired&&onAuthRequired();return;}
+    const next=!liked;const delta=next?1:-1;
+    setLiked(next);setLikes(l=>Math.max(0,l+delta));
+    bcastRef.current?.send({type:"broadcast",event:"like",payload:{delta}});
+    if(typeof stream.id==="string")persistLikeDelta(delta);
+    try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");if(next)ls[stream.id]=true;else delete ls[stream.id];localStorage.setItem("gift3rs_likes",JSON.stringify(ls));}catch(e){console.error(e);}
+  };
+
+  // ── Host moderation: pin / unpin / delete / like a comment ────────────────
+  const modAction=(action,m)=>{
+    if(!isHost)return;
+    if(action==="pin"){setPinnedMsg(m);bcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"pin",msg:m,id:m.id}});}
+    else if(action==="unpin"){setPinnedMsg(null);bcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"unpin"}});}
+    else if(action==="delete"){setChat(c=>c.filter(x=>x.id!==m.id));setPinnedMsg(p=>p&&p.id===m.id?null:p);bcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"delete",id:m.id}});}
+    else if(action==="like"){setChat(c=>c.map(x=>x.id===m.id?{...x,likes:(x.likes||0)+1}:x));bcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"like",id:m.id}});}
+  };
+
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg}}>
       <GS/>
@@ -754,11 +799,11 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 <div style={{marginTop:5}}><span className="tag" style={{background:`${stream.col}25`,color:stream.col,border:`1px solid ${stream.col}30`,fontSize:10}}>{stream.cat}</span></div>
               </div>
               <div style={{position:"absolute",right:14,bottom:70,display:"flex",flexDirection:"column",gap:14,alignItems:"center",zIndex:4}}>
-                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}const newLiked=!liked;setLiked(newLiked);setLikes(l=>Math.max(0,newLiked?l+1:l-1));if(newLiked)bcastRef.current?.send({type:"broadcast",event:"like",payload:{}});try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");if(newLiked)ls[stream.id]=true;else delete ls[stream.id];localStorage.setItem("gift3rs_likes",JSON.stringify(ls));}catch(e){console.error(e);}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
-                  <div style={{filter:liked?"drop-shadow(0 0 8px #FF2D2D) drop-shadow(0 0 16px #FF2D2D88)":"none",transition:"filter .3s"}}>
-                    <svg width={26} height={26} viewBox="0 0 24 24" fill={liked?"#FF2D2D":"none"} stroke={liked?"#FF2D2D":"#fff"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                <button onClick={toggleLike} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                  <div className={liked?"heartBeat":""} style={{filter:liked?"drop-shadow(0 0 8px #FF2D2D) drop-shadow(0 0 16px #FF2D2D88)":"none",transition:"filter .3s"}}>
+                    <svg width={28} height={28} viewBox="0 0 24 24" fill={liked?"#FF2D2D":"none"} stroke={liked?"#FF2D2D":"#fff"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                   </div>
-                  <span style={{fontSize:10,color:liked?"#FF2D2D":"#fff",fontWeight:liked?800:400}}>{fmtCount(likes)}</span>
+                  <span style={{fontSize:11,color:liked?"#FF2D2D":"#fff",fontWeight:800}}>{fmtCount(likes)}</span>
                 </button>
                 <button onClick={()=>{let url=`${window.location.origin}?stream=${stream.id}`;if(stream.channel_name)url+=`&ch=${encodeURIComponent(stream.channel_name)}&sn=${encodeURIComponent(streamerName)}&st=${encodeURIComponent(stream.title||"Live Stream")}&sid=${stream.streamer_id||""}`;if(navigator.share){navigator.share({title:stream.title,text:`Watch ${streamerName} live on GIFT3RS!`,url});}else{navigator.clipboard.writeText(url).then(()=>alert("Stream link copied!"));}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                   <Ico n="share" s={22} c="#fff"/>
@@ -791,7 +836,12 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
             </div>
           </div>
           <div className={`liveChat${showChat?"":" liveChatHidden"}`}>
-            <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,fontSize:13}}>LIVE CHAT</span><span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}}><Ico n="eye" s={12} c={C.muted}/>{fmtCount(liveViewers)}</span><button onClick={()=>setShowChat(false)} style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex"}}><Ico n="close" s={15} c={C.muted}/></button></div>
+            <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,fontSize:13}}>LIVE CHAT</span><span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}} title="Viewers"><Ico n="eye" s={12} c={C.muted}/>{fmtCount(liveViewers)}</span><span style={{fontSize:11,color:"#FF6060",display:"flex",alignItems:"center",gap:4}} title="Likes"><Ico n="heart" s={12} c="#FF6060"/>{fmtCount(likes)}</span><button onClick={()=>setShowChat(false)} style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex"}}><Ico n="close" s={15} c={C.muted}/></button></div>
+            {pinnedMsg&&<div style={{padding:"8px 12px",background:`${C.cyan}12`,borderBottom:`1px solid ${C.cyan}30`,display:"flex",alignItems:"center",gap:8}}>
+              <Ico n="star" s={13} c={C.cyan}/>
+              <div style={{flex:1,minWidth:0,fontSize:12}}><span style={{fontWeight:800,color:C.cyan}}>{pinnedMsg.u} </span><span style={{color:C.text}}>{pinnedMsg.t}</span></div>
+              {isHost&&<button onClick={()=>modAction("unpin",pinnedMsg)} style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex"}} title="Unpin"><Ico n="close" s={13} c={C.muted}/></button>}
+            </div>}
             <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:"10px 12px"}}>
               {chat.map((m,i)=>(
                 <div key={m.id||i} className="chatMsg" style={{marginBottom:8}}>
@@ -808,9 +858,14 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                       <div><span style={{fontWeight:800,color:C.purple,fontSize:13}}>{m.u}</span><span style={{fontSize:12,color:C.text,marginLeft:4}}>{m.t}</span></div>
                     </div>
                   ):(
-                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <div className="chatRow" style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                       <div style={{width:22,height:22,borderRadius:"50%",background:m.c,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff"}}>{m.u[0]}</div>
-                      <div style={{lineHeight:1.5}}><span style={{fontSize:12,fontWeight:800,color:m.c}}>{m.u} </span><span style={{fontSize:13,color:C.text}}>{m.t}</span></div>
+                      <div style={{lineHeight:1.5,flex:1,minWidth:0}}><span style={{fontSize:12,fontWeight:800,color:m.c}}>{m.u} </span><span style={{fontSize:13,color:C.text}}>{m.t}</span>{m.likes>0&&<span style={{marginLeft:6,fontSize:11,color:"#FF6060",fontWeight:700,whiteSpace:"nowrap"}}>♥ {m.likes}</span>}</div>
+                      {isHost&&<div className="modBtns" style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
+                        <button onClick={()=>modAction("like",m)} title="Like" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.7}}><Ico n="heart" s={13} c="#FF6060"/></button>
+                        <button onClick={()=>modAction("pin",m)} title="Pin" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.7}}><Ico n="star" s={13} c={C.cyan}/></button>
+                        <button onClick={()=>modAction("delete",m)} title="Delete" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.7}}><Ico n="trash" s={13} c="#FF6060"/></button>
+                      </div>}
                     </div>
                   )}
                 </div>
@@ -1160,6 +1215,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [studioTab,setStudioTab]=useState("setup");
   const [chatMsg,setChatMsg]=useState("");const [studioChat,setStudioChat]=useState([]);
   const [studioGifts,setStudioGifts]=useState([]);const [studioSubs,setStudioSubs]=useState([]);
+  const [studioPinned,setStudioPinned]=useState(null);
   const [subscribersList,setSubscribersList]=useState([]);
   const [sharing,setSharing]=useState(false);const [shareMode,setShareMode]=useState("both");
   const [quality,setQuality]=useState("1080p");const [tags,setTags]=useState([]);const [tagInput,setTagInput]=useState("");
@@ -1272,6 +1328,13 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         setStudioSubs(s=>[{u:payload.u||"Someone",id:payload.id||Date.now()},...s.slice(0,49)]);
         playNotifSound("sub");
       })
+      .on("broadcast",{event:"mod"},({payload})=>{
+        if(!payload)return;
+        if(payload.action==="pin")setStudioPinned(payload.msg||null);
+        else if(payload.action==="unpin")setStudioPinned(null);
+        else if(payload.action==="delete"){setStudioChat(c=>c.filter(m=>(m.id||"")!==payload.id));setStudioPinned(p=>p&&p.id===payload.id?null:p);}
+        else if(payload.action==="like")setStudioChat(c=>c.map(m=>m.id===payload.id?{...m,likes:(m.likes||0)+1}:m));
+      })
       .on("presence",{event:"sync"},()=>{
         const state=bcastCh.presenceState();
         let count=0;Object.values(state).forEach(arr=>arr.forEach(m=>{if(m.role!=="streamer")count++;}));
@@ -1333,6 +1396,11 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // Never include streamer_name — that column doesn't exist in this schema.
     const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString()};
     const {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single();
+    // Ensure the streamer has a display name so viewers never just see "Streamer"
+    const emailName=user.email?.split("@")[0]||"Streamer";
+    if(!profileData?.display_name&&!profileData?.username){
+      await supabase.from("profiles").upsert({id:user.id,username:emailName,display_name:emailName},{onConflict:"id"}).then(null,null);
+    }
     const extRow={
       ...minRow,
       category:cat||"General",
@@ -1396,7 +1464,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     localVideoTrack.current=null;localAudioTrack.current=null;
     if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0}).eq("id",streamId);}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
-    setStudioGifts([]);setStudioSubs([]);setSharing(false);
+    setStudioGifts([]);setStudioSubs([]);setStudioPinned(null);setSharing(false);
     setThumbPreview("");setThumbFile(null);setCamOn(true);setMicOn(true);
     // Restart camera preview for the setup tab
     setTimeout(restartCameraPreview, 800);
@@ -1478,6 +1546,13 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // Broadcast so all viewers see the streamer's message
     studioBcastRef.current?.send({type:"broadcast",event:"chat",payload});
     if(streamId&&user){await supabase.from("chat_messages").insert({stream_id:streamId,user_id:user.id,username:uname,message:msg});}
+  };
+  // Streamer moderation of comments — pin / unpin / delete / like (broadcast to all)
+  const modStudio=(action,m)=>{
+    if(action==="pin"){setStudioPinned(m);studioBcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"pin",msg:m,id:m.id}});}
+    else if(action==="unpin"){setStudioPinned(null);studioBcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"unpin"}});}
+    else if(action==="delete"){setStudioChat(c=>c.filter(x=>x.id!==m.id));setStudioPinned(p=>p&&p.id===m.id?null:p);studioBcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"delete",id:m.id}});}
+    else if(action==="like"){setStudioChat(c=>c.map(x=>x.id===m.id?{...x,likes:(x.likes||0)+1}:x));studioBcastRef.current?.send({type:"broadcast",event:"mod",payload:{action:"like",id:m.id}});}
   };
   const addTag=()=>{if(tagInput.trim()&&tags.length<5&&!tags.includes(tagInput.trim())){setTags(t=>[...t,tagInput.trim()]);setTagInput("");}};
   const copyLink=()=>{navigator.clipboard.writeText(shareLink);setCopied(true);window.setTimeout(()=>setCopied(false),2000);};
@@ -1615,14 +1690,21 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
           </div>
           <div style={{flex:"0 0 280px",display:"flex",flexDirection:"column",background:darkMode?C.surf:"#F5F5F5",borderRadius:18,border:`1px solid ${darkMode?C.border:"#E0E0E0"}`,overflow:"hidden",maxHeight:520}}>
             <div style={{padding:"12px 14px",borderBottom:`1px solid ${darkMode?C.border:"#E0E0E0"}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,fontSize:13,color:darkMode?C.text:"#0F0F0F"}}>LIVE CHAT</span><span style={{fontSize:11,color:darkMode?C.muted:"#666",marginLeft:"auto"}}>{studioChat.length} messages</span></div>
+            {studioPinned&&<div style={{padding:"8px 12px",background:`${C.cyan}12`,borderBottom:`1px solid ${C.cyan}30`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}><Ico n="star" s={13} c={C.cyan}/><div style={{flex:1,minWidth:0,fontSize:12}}><span style={{fontWeight:800,color:C.cyan}}>{studioPinned.u} </span><span style={{color:darkMode?"rgba(255,255,255,.85)":"#1A1A3E"}}>{studioPinned.t}</span></div><button onClick={()=>modStudio("unpin",studioPinned)} style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex"}}><Ico n="close" s={13} c={C.muted}/></button></div>}
             <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:"10px 12px"}}>
               {studioChat.map((m,i)=>(
-                <div key={m.id||i} style={{marginBottom:8,display:"flex",gap:6,alignItems:"flex-start"}}>
+                <div key={m.id||i} className="chatRow" style={{marginBottom:8,display:"flex",gap:6,alignItems:"flex-start"}}>
                   <div style={{width:22,height:22,borderRadius:"50%",background:m.type==="streamer"?C.amber:m.type==="system"?C.cyan:C.purple,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#000"}}>{(m.u||"?")[0]}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <span style={{fontSize:11,fontWeight:800,color:m.type==="streamer"?C.amber:m.type==="system"?C.cyan:C.purple}}>{m.u} </span>
                     <span style={{fontSize:12,wordBreak:"break-word",color:darkMode?"rgba(255,255,255,.85)":"#1A1A3E"}}>{m.t}</span>
+                    {m.likes>0&&<span style={{marginLeft:6,fontSize:11,color:"#FF6060",fontWeight:700}}>♥ {m.likes}</span>}
                   </div>
+                  {m.type!=="system"&&m.type!=="gift"&&m.type!=="sub"&&<div className="modBtns" style={{display:"flex",gap:5,flexShrink:0,alignItems:"center"}}>
+                    <button onClick={()=>modStudio("like",m)} title="Like" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.6}}><Ico n="heart" s={12} c="#FF6060"/></button>
+                    <button onClick={()=>modStudio("pin",m)} title="Pin" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.6}}><Ico n="star" s={12} c={C.cyan}/></button>
+                    <button onClick={()=>modStudio("delete",m)} title="Delete" style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",opacity:.6}}><Ico n="trash" s={12} c="#FF6060"/></button>
+                  </div>}
                 </div>
               ))}
             </div>
@@ -2395,6 +2477,7 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
   const [tab,setTab]=useState("streams");
   const [streamerStreams,setStreamerStreams]=useState([]);
   const [followerCount,setFollowerCount]=useState(0);
+  const [subCount,setSubCount]=useState(0);
   const streamerId=streamer.streamer_id||streamer.id;
 
   useEffect(()=>{
@@ -2406,6 +2489,9 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
     // Follower count
     supabase.from("follows").select("id",{count:"exact"}).eq("following_id",streamerId)
       .then(({count})=>{if(count!=null)setFollowerCount(count);});
+    // Active subscriber count
+    supabase.from("subscriptions").select("id",{count:"exact"}).eq("streamer_id",streamerId).eq("status","active")
+      .then(({count})=>{if(count!=null)setSubCount(count);});
   },[streamerId]);
 
   useEffect(()=>{
@@ -2447,7 +2533,7 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
             </div>
             <div style={{fontSize:13,color:C.muted,marginTop:4}}>{streamer.cat} Creator</div>
             <div style={{display:"flex",gap:20,marginTop:12}}>
-              {[[(((streamer.viewers||0)/1000).toFixed(1)+"K"),"Viewers"],[followerCount.toLocaleString(),"Followers"],[streamerStreams.length.toString(),"Streams"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
+              {[[fmtCount(streamer.viewers||0),"Viewers"],[followerCount.toLocaleString(),"Followers"],[subCount.toLocaleString(),"Subscribers"],[streamerStreams.length.toString(),"Streams"]].map(([v,l])=>(<div key={l}><div className="exo" style={{fontWeight:900,fontSize:16}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>))}
             </div>
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
