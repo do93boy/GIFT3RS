@@ -1103,11 +1103,24 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
 
   const dur=String(Math.floor(secs/3600)).padStart(2,"0")+":"+String(Math.floor((secs%3600)/60)).padStart(2,"0")+":"+String(secs%60).padStart(2,"0");
 
+  const restartCameraPreview=()=>{
+    navigator.mediaDevices?.getUserMedia({video:true,audio:true})
+      .then(s=>{setPreviewStream(s);if(videoRef.current)videoRef.current.srcObject=s;})
+      .catch(()=>{});
+  };
+
   const handleGoLive=async()=>{
     if(!title){alert("Please enter a stream title.");return;}
     if(!user){alert("You must be signed in.");return;}
     setStarting(true);setStreamError("");
-    // Upload thumbnail first
+
+    // ── Step 1: End any ghost streams this streamer left open ─────────────
+    await supabase.from("streams")
+      .update({is_live:false,ended_at:new Date().toISOString()})
+      .eq("streamer_id",user.id).eq("is_live",true)
+      .catch(()=>{});
+
+    // ── Step 2: Upload thumbnail ───────────────────────────────────────────
     let thumbnailUrl="";
     if(thumbFile){
       try{
@@ -1117,64 +1130,60 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         if(!upErr){const {data:ud}=supabase.storage.from("gift3rs-media").getPublicUrl(path);thumbnailUrl=ud.publicUrl||"";}
       }catch(e){console.warn("Thumb upload failed",e);}
     }
-    // Create Supabase stream record FIRST — guarantees it appears in HomeFeed
+
+    // ── Step 3: Create DB record with minimal required columns first ───────
     const channelName=makeChannel(user.id);
-    // Read streamer's saved subscription prices so SubModal shows correct amounts
-    const {data:profilePrices}=await supabase.from("profiles").select("*").eq("id",user.id).single().catch(()=>({data:null}));
-    const streamRow={
-      streamer_id:user.id,
+    // Minimal row — only columns guaranteed to exist in a basic streams table
+    const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString()};
+    // Extended row — add optional columns; Supabase ignores unknown ones via upsert
+    let {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single().catch(()=>({data:null}));
+    const extRow={
+      ...minRow,
       streamer_name:user.email?.split("@")[0]||"Streamer",
-      title,category:cat||"General",is_live:true,
-      channel_name:channelName,thumbnail_url:thumbnailUrl||null,
-      is_subscriber_only:subOnly,viewer_count:0,gift_total:0,
-      started_at:new Date().toISOString(),
-      sub_price_weekly:profilePrices?.sub_price_weekly||1.99,
-      sub_price_monthly:profilePrices?.sub_price_monthly||5.99,
-      sub_price_annually:profilePrices?.sub_price_annually||49.99,
+      category:cat||"General",
+      thumbnail_url:thumbnailUrl||null,
+      viewer_count:0,
     };
-    const {data:newStream,error:dbErr}=await supabase.from("streams").insert(streamRow).select("id").single();
+
+    let {data:newStream,error:dbErr}=await supabase.from("streams").insert(extRow).select("id").single();
     if(dbErr){
-      console.warn("[GoLive] DB insert failed:",dbErr.message,"Code:",dbErr.code);
-      // Show the real error so the developer can fix RLS / schema issues
-      setStreamError("DB: "+dbErr.message+". Check Supabase RLS policy for streams table (allow authenticated INSERT).");
-      // Fallback 1: try upsert without onConflict (just insert-or-update)
-      const {data:up,error:upErr}=await supabase.from("streams").upsert(streamRow).select("id").single();
-      if(up?.id){
-        streamRow.id=up.id;
-        setStreamError(""); // cleared — upsert worked
-      } else {
-        console.warn("[GoLive] upsert also failed:",upErr?.message);
-        // Fallback 2: generate a local ID and continue anyway — Agora still works
-        streamRow.id="local_"+user.id+"_"+Date.now();
+      console.warn("[GoLive] Extended insert failed:",dbErr.message,". Trying minimal row...");
+      // Retry with only the required columns
+      const r2=await supabase.from("streams").insert(minRow).select("id").single();
+      if(r2.data?.id){newStream=r2.data;dbErr=null;}
+      else{
+        setStreamError("DB error: "+dbErr.message);
+        setStarting(false);return;
       }
-    } else {streamRow.id=newStream.id;}
-    const supabaseStreamId=streamRow.id;
-    // Release camera so Agora can open it fresh
-    if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);await new Promise(r=>window.setTimeout(r,800));}
-    // Start Agora
+    }
+    const supabaseStreamId=newStream.id;
+
+    // ── Step 4: Release camera then start Agora (20s timeout) ─────────────
+    if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);}
+    await new Promise(r=>window.setTimeout(r,1000)); // wait 1s for OS to release cam
+
     let result=null;
     try{
-      result=await startStream({userId:user.id,channelName,title,category:cat||"General",isSubscriberOnly:subOnly,thumbnailUrl,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).catch(()=>{});}});
-    }catch(agoraErr){
-      // startStream now throws so we get the real Agora error message
-      const msg=agoraErr?.message||String(agoraErr);
-      setStreamError("Agora error: "+msg);
+      result=await Promise.race([
+        startStream({channelName,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).catch(()=>{});}}),
+        new Promise((_,reject)=>window.setTimeout(()=>reject(new Error("Start timed out (20s) — check camera permissions and network.")),20000)),
+      ]);
+    }catch(err){
+      setStreamError(err?.message||"Failed to start stream.");
       await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
-      setStarting(false);return;
+      setStarting(false);
+      restartCameraPreview(); // restore camera preview after failure
+      return;
     }
-    if(result){
-      // stream.js now correctly returns localVideoTrack=camera, localAudioTrack=mic
-      localVideoTrack.current=result.localVideoTrack||null;
-      localAudioTrack.current=result.localAudioTrack||null;
-      setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
-      const sName=encodeURIComponent(user.email?.split("@")[0]||"Streamer");
-      const sTitle=encodeURIComponent(title||"Live Stream");
-      setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}`);
-      setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
-    } else {
-      await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
-      setStreamError("Failed to start stream. Check camera/mic permissions and try again.");
-    }
+
+    // ── Step 5: Go live ───────────────────────────────────────────────────
+    localVideoTrack.current=result.localVideoTrack||null;
+    localAudioTrack.current=result.localAudioTrack||null;
+    setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
+    const sName=encodeURIComponent(user.email?.split("@")[0]||"Streamer");
+    const sTitle=encodeURIComponent(title||"Live Stream");
+    setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}`);
+    setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
     setStarting(false);
   };
 
@@ -1186,8 +1195,9 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     localVideoTrack.current=null;localAudioTrack.current=null;
     if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0,ended_at:new Date().toISOString()}).eq("id",streamId).catch(()=>{});}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
-    setThumbPreview("");setThumbFile(null);
-    navigator.mediaDevices?.getUserMedia({video:true,audio:true}).then(s=>{setPreviewStream(s);if(videoRef.current)videoRef.current.srcObject=s;});
+    setThumbPreview("");setThumbFile(null);setCamOn(true);setMicOn(true);
+    // Restart camera preview for the setup tab
+    setTimeout(restartCameraPreview, 800);
   };
 
   const handleToggleMic=async()=>{
@@ -2127,6 +2137,14 @@ export default function App(){
   useEffect(()=>{const handler=(e)=>{if(!e.target.closest("[data-dropdown]")){setShowNotifs(false);setShowCurrencyPicker(false);setShowMenu(false);}};document.addEventListener("mousedown",handler);return()=>document.removeEventListener("mousedown",handler);},[]);
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
+
+  // Clean up ghost streams: any stream marked is_live=true but started > 12 hours ago
+  // is almost certainly a browser-close orphan and should be cleared from the feed
+  useEffect(()=>{
+    const cutoff=new Date(Date.now()-12*60*60*1000).toISOString();
+    supabase.from("streams").update({is_live:false,ended_at:new Date().toISOString()})
+      .eq("is_live",true).lt("started_at",cutoff).catch(()=>{});
+  },[]);
 
   // Open stream from share link (?stream=UUID&ch=channel&sn=name&st=title)
   useEffect(()=>{
