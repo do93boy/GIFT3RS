@@ -862,8 +862,15 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
       }
       if(cancelled)return;
       const mapped=(rows||[]).map(s=>mapStreamRow(s,profileMap));
-      setStreams(mapped);
-      setFeatured(f=>{if(mapped.length>0&&(!f?.isReal||!mapped.find(r=>r.id===f.id)))return mapped[0];return f||null;});
+      // Deduplicate: if a streamer somehow has multiple is_live=true records,
+      // only keep the first (highest viewer_count due to ORDER BY).
+      const seen=new Set();
+      const deduped=mapped.filter(s=>{
+        if(!s.streamer_id||seen.has(s.streamer_id))return false;
+        seen.add(s.streamer_id);return true;
+      });
+      setStreams(deduped);
+      setFeatured(f=>{if(deduped.length>0&&(!f?.isReal||!deduped.find(r=>r.id===f.id)))return deduped[0];return f||null;});
       setLoading(false);
     };
     load();
@@ -1026,21 +1033,25 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const timerRef=useRef();const chatRef=useRef();
   const localVideoTrack=useRef(null);const localAudioTrack=useRef(null);
 
+  // Camera preview — retries up to 3 times in case the camera is briefly
+  // busy after an Agora track was just released
   useEffect(()=>{
-    let stream;
-    navigator.mediaDevices?.getUserMedia({video:true,audio:true})
-      .then(s=>{stream=s;setPreviewStream(s);if(videoRef.current)videoRef.current.srcObject=s;})
-      .catch(()=>setStreamError("Camera not available. Check permissions."));
-    return()=>{stream?.getTracks().forEach(t=>t.stop());};
+    let stream;let retryTimer;
+    const startCam=(attempt=0)=>{
+      navigator.mediaDevices?.getUserMedia({video:true,audio:true})
+        .then(s=>{
+          stream=s;setPreviewStream(s);
+          if(videoRef.current){videoRef.current.srcObject=s;}
+          setStreamError("");
+        })
+        .catch(()=>{
+          if(attempt<3){retryTimer=setTimeout(()=>startCam(attempt+1),1200);}
+          else{setStreamError("Camera unavailable — check permissions or close other apps using it.");}
+        });
+    };
+    startCam();
+    return()=>{stream?.getTracks().forEach(t=>t.stop());clearTimeout(retryTimer);};
   },[]);
-
-  // On studio open: clean up any ghost live streams from this streamer only
-  useEffect(()=>{
-    if(!user)return;
-    supabase.from("streams").update({is_live:false})
-      .eq("streamer_id",user.id).eq("is_live",true)
-      .catch(()=>{});
-  },[user?.id]); // eslint-disable-line
 
   // Load scheduled streams from Supabase
   useEffect(()=>{
@@ -1131,9 +1142,9 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
 
     // ── Step 1: End any ghost streams this streamer left open ─────────────
     await supabase.from("streams")
-      .update({is_live:false,ended_at:new Date().toISOString()})
+      .update({is_live:false})
       .eq("streamer_id",user.id).eq("is_live",true)
-      .catch(()=>{});
+      .then(()=>{}).catch(()=>{});
 
     // ── Step 2: Upload thumbnail ───────────────────────────────────────────
     let thumbnailUrl="";
@@ -2159,7 +2170,17 @@ export default function App(){
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
 
-  // Ghost stream cleanup moved to GoLivePage where user is always authenticated
+  // When user logs in, mark any of their stale is_live=true streams as ended.
+  // This cleans up streams left over from browser-close / crashed sessions.
+  useEffect(()=>{
+    if(!user?.id)return;
+    supabase.from("streams")
+      .update({is_live:false})
+      .eq("streamer_id",user.id)
+      .eq("is_live",true)
+      .then(()=>{})   // force Supabase to execute the query
+      .catch(()=>{});
+  },[user?.id]); // eslint-disable-line
 
   // Open stream from share link (?stream=UUID&ch=channel&sn=name&st=title)
   useEffect(()=>{
