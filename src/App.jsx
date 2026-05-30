@@ -9,10 +9,6 @@ import {
   startScreenShare, stopScreenShare, setScreenMode, isScreenSharing, getActiveVideoTrack,
 } from "./lib/stream";
 
-// App owner / admin emails — these accounts see the Admin tab
-const ADMIN_EMAILS = ["victorymutuku02@gmail.com", "1innovativestudio@gmail.com"];
-const isAdminUser = (u) => !!u && ADMIN_EMAILS.includes((u.email || "").toLowerCase());
-
 // Count formatter: 1.2K style only at 1000+, otherwise the raw integer
 const fmtCount = (n) => { n = n || 0; return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : String(n); };
 
@@ -2498,124 +2494,6 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
   );
 };
 
-/* ═══════════════════ ADMIN PAGE ═══════════════════ */
-const AdminPage=({fmt,user,darkMode})=>{
-  const [stats,setStats]=useState({streams:0,live:0,users:0,giftTotal:0,subs:0,giftCount:0,subTotal:0,feeCount:0,cutGift:0,cutSub:0,cutFee:0,cutTotal:0});
-  const [liveStreams,setLiveStreams]=useState([]);
-  const [users,setUsers]=useState([]);
-  const [q,setQ]=useState("");
-  const [tab,setTab]=useState("overview");
-  const [busy,setBusy]=useState("");
-
-  const STREAMER_FEE=4.99;
-  const loadStats=async()=>{
-    const [s1,s2,s3,g,subRows,fee,lives]=await Promise.all([
-      supabase.from("streams").select("id",{count:"exact",head:true}),
-      supabase.from("streams").select("id",{count:"exact",head:true}).eq("is_live",true),
-      supabase.from("profiles").select("id",{count:"exact",head:true}),
-      supabase.from("gifts").select("amount_usd"),
-      supabase.from("subscriptions").select("price_usd,status").eq("status","active"),
-      supabase.from("profiles").select("id",{count:"exact",head:true}).eq("fee_paid",true),
-      supabase.from("streams").select("*").eq("is_live",true).order("viewer_count",{ascending:false}).limit(50),
-    ]);
-    const giftRows=g.data||[];
-    const subData=subRows.data||[];
-    const giftTotal=giftRows.reduce((a,x)=>a+(x.amount_usd||0),0);
-    const subTotal=subData.reduce((a,x)=>a+(x.price_usd||0),0);
-    const feeCount=fee.count||0;
-    // Platform cuts: 10% of gifts, 20% of subscriptions, 100% of registration fees
-    const cutGift=giftTotal*0.10, cutSub=subTotal*0.20, cutFee=feeCount*STREAMER_FEE;
-    setStats({
-      streams:s1.count||0, live:s2.count||0, users:s3.count||0,
-      giftTotal, giftCount:giftRows.length, subs:subData.length, subTotal,
-      feeCount, cutGift, cutSub, cutFee, cutTotal:cutGift+cutSub+cutFee,
-    });
-    setLiveStreams(lives.data||[]);
-  };
-  const loadUsers=async()=>{const {data}=await supabase.from("profiles").select("*").order("id").limit(200);setUsers(data||[]);};
-  useEffect(()=>{loadStats();loadUsers();const i=setInterval(loadStats,8000);return()=>clearInterval(i);},[]);
-
-  const endStreamAdmin=async(id)=>{if(!window.confirm("End & delete this stream?"))return;setBusy(id);await supabase.from("streams").delete().eq("id",id);await loadStats();setBusy("");};
-  const toggleVerify=async(u)=>{setBusy(u.id);const next=!(u.is_streamer||u.streamer_verified);await supabase.from("profiles").update({is_streamer:next,fee_paid:next,streamer_verified:next}).eq("id",u.id);await loadUsers();setBusy("");};
-
-  const filteredUsers=users.filter(u=>{const s=(u.display_name||u.username||u.id||"").toLowerCase();return !q||s.includes(q.toLowerCase());});
-
-  if(!isAdminUser(user))return(
-    <div style={{padding:"60px 20px",textAlign:"center"}} className="page">
-      <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:16}}><Ico n="lock" s={52} c={C.muted}/></div>
-      <div className="exo" style={{fontSize:22,fontWeight:900,marginBottom:8}}>Admin Access Only</div>
-      <div style={{fontSize:14,color:C.muted}}>You don't have permission to view this page.</div>
-    </div>
-  );
-
-  const STAT=[["mic","Total Streams",stats.streams,C.cyan],["activity","Live Now",stats.live,"#FF2D2D"],["users","Users",stats.users,C.purple],["gift","Gift Volume",fmt(stats.giftTotal),C.gold],["star","Active Subs",stats.subs,C.emerald],["trophy","Total Gifts",stats.giftCount,C.amber]];
-  return(
-    <div style={{padding:"24px 20px 40px"}} className="page">
-      <div style={{marginBottom:18,display:"flex",alignItems:"center",gap:10}}><Ico n="shield" s={24} c={C.cyan}/><div><div className="exo" style={{fontSize:22,fontWeight:900}}>Admin Console</div><div style={{fontSize:12,color:darkMode?C.muted:"#555"}}>Manage streams, users and platform activity</div></div></div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:20}}>
-        {STAT.map(([icon,label,val,col],i)=>(
-          <div key={i} className="card" style={{padding:"16px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n={icon} s={22} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:20,color:col}}>{val}</div><div style={{fontSize:11,color:darkMode?C.muted:"#555",marginTop:3}}>{label}</div></div>
-        ))}
-      </div>
-      <div className="sx" style={{display:"flex",gap:6,marginBottom:18,background:C.card2,borderRadius:14,padding:4,maxWidth:420}}>
-        {["overview","streams","users"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t}</button>))}
-      </div>
-
-      {tab==="overview"&&<div style={{maxWidth:700}}>
-        {/* PLATFORM CUT / REVENUE — the most important developer metric */}
-        <div className="card" style={{padding:"20px",marginBottom:14,background:`linear-gradient(135deg,${C.emerald}15,${C.cyan}08)`,border:`1px solid ${C.emerald}30`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
-            <div><div style={{fontSize:13,fontWeight:700}}>Total Platform Revenue (Your Cut)</div><div style={{fontSize:11,color:C.muted}}>10% of gifts + 20% of subscriptions + registration fees</div></div>
-            <div className="exo" style={{fontSize:30,fontWeight:900,color:C.emerald}}>{fmt(stats.cutTotal)}</div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-            {[["Gifts (10%)",stats.cutGift,C.gold,`of ${fmt(stats.giftTotal)} · ${stats.giftCount} gifts`],["Subscriptions (20%)",stats.cutSub,C.purple,`of ${fmt(stats.subTotal)} · ${stats.subs} active`],["Registration fees",stats.cutFee,C.cyan,`${stats.feeCount} streamers × ${fmt(4.99)}`]].map(([label,val,col,sub],i)=>(
-              <div key={i} style={{background:C.card,borderRadius:12,padding:"12px",border:`1px solid ${col}25`}}>
-                <div className="exo" style={{fontWeight:900,fontSize:17,color:col}}>{fmt(val)}</div>
-                <div style={{fontSize:11,fontWeight:700,marginTop:3}}>{label}</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:2}}>{sub}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="card" style={{padding:"18px"}}>
-          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:10}}>Platform Health</div>
-          <div style={{fontSize:13,color:C.muted,lineHeight:1.9}}>
-            <div>· <strong style={{color:C.text}}>{stats.live}</strong> streams live now · <strong style={{color:C.text}}>{stats.streams}</strong> total stream records</div>
-            <div>· <strong style={{color:C.text}}>{stats.users}</strong> registered accounts · <strong style={{color:C.text}}>{stats.feeCount}</strong> paid streamers</div>
-            <div>· <strong style={{color:C.text}}>{fmt(stats.giftTotal)}</strong> gift volume · <strong style={{color:C.text}}>{fmt(stats.subTotal)}</strong> subscription volume</div>
-            <div>· Gross transacted: <strong style={{color:C.emerald}}>{fmt(stats.giftTotal+stats.subTotal+stats.cutFee)}</strong></div>
-          </div>
-        </div>
-      </div>}
-
-      {tab==="streams"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14}}>Live Streams</div><span style={{fontSize:11,color:C.muted}}>{liveStreams.length} live</span></div>
-        {liveStreams.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No live streams right now.</div>}
-        {liveStreams.map((s,i)=>(
-          <div key={s.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<liveStreams.length-1?`1px solid ${C.border}`:"none"}}>
-            <div style={{width:40,height:40,borderRadius:10,background:`${C.cyan}15`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div className="liveDot"/></div>
-            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title||"Live Stream"}</div><div style={{fontSize:11,color:C.muted}}>{(s.viewer_count||0).toLocaleString()} viewers · {s.category||"General"}</div></div>
-            <button onClick={()=>endStreamAdmin(s.id)} disabled={busy===s.id} style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:8,padding:"6px 12px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><Ico n="trash" s={13} c="#FF6060"/>{busy===s.id?"…":"End"}</button>
-          </div>
-        ))}
-      </div>}
-
-      {tab==="users"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10}}><div className="exo" style={{fontWeight:800,fontSize:14,flexShrink:0}}>Users</div><input className="inp" placeholder="Search users…" value={q} onChange={e=>setQ(e.target.value)} style={{maxWidth:220,fontSize:12,padding:"7px 12px"}}/></div>
-        {filteredUsers.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No users found.</div>}
-        {filteredUsers.map((u,i)=>{const verified=!!(u.is_streamer||u.streamer_verified);return(
-          <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:i<filteredUsers.length-1?`1px solid ${C.border}`:"none"}}>
-            {u.avatar_url?<img src={u.avatar_url} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={(u.display_name||u.username||"U")[0].toUpperCase()} sz={38}/>}
-            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5}}>{u.display_name||u.username||"User"}{verified&&<span style={{display:"inline-flex",width:15,height:15,borderRadius:"50%",background:"#0095F6",alignItems:"center",justifyContent:"center"}}><Ico n="check" s={9} c="#fff" sw={3}/></span>}</div><div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.username?"@"+u.username:u.id}</div></div>
-            <button onClick={()=>toggleVerify(u)} disabled={busy===u.id} className={`btn ${verified?"btnS":"btnC"}`} style={{padding:"6px 12px",fontSize:11,flexShrink:0}}>{busy===u.id?"…":verified?"Unverify":"Verify"}</button>
-          </div>
-        );})}
-      </div>}
-    </div>
-  );
-};
-
 /* ═══════════════════ ROOT APP ═══════════════════ */
 export default function App(){
   const {fmt,cur,curKey,setCurKey,allCurrencies}=useCurrency();
@@ -2761,7 +2639,7 @@ export default function App(){
             <div style={{width:18,height:2,borderRadius:2,background:showMenu?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E"),transition:"all .3s",transform:showMenu?"rotate(-45deg) translateY(-7px)":"none"}}/>
           </button>
           {showMenu&&<div data-dropdown style={{position:"fixed",top:64,left:8,background:darkMode?"#0B0B1C":"#fff",border:`1px solid ${darkMode?"#1E1E3A":"#E4E7F5"}`,borderRadius:18,padding:"10px 8px",zIndex:700,width:240,boxShadow:"0 12px 48px rgba(0,0,0,.4)",animation:"menuSlideIn .2s cubic-bezier(.17,.67,.3,1.2) both"}}>
-            {[{id:"home",icon:"home",label:"Home",sub:"Discover live streams"},{id:"search",icon:"search",label:"Discover",sub:"Browse categories"},{id:"live",icon:"mic",label:"Studio",sub:"Go live & manage streams"},...(isStreamer?[{id:"dash",icon:"barchart",label:"Earnings",sub:"Revenue & analytics"}]:[]),...(isAdminUser(user)?[{id:"admin",icon:"shield",label:"Admin",sub:"Developer backend"}]:[]),{id:"prof",icon:"profile",label:"Profile",sub:"Account & settings"}].map(l=>(
+            {[{id:"home",icon:"home",label:"Home",sub:"Discover live streams"},{id:"search",icon:"search",label:"Discover",sub:"Browse categories"},{id:"live",icon:"mic",label:"Studio",sub:"Go live & manage streams"},...(isStreamer?[{id:"dash",icon:"barchart",label:"Earnings",sub:"Revenue & analytics"}]:[]),{id:"prof",icon:"profile",label:"Profile",sub:"Account & settings"}].map(l=>(
               <button key={l.id} onClick={()=>{setTab(l.id);setShowMenu(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"left",marginBottom:2,background:tab===l.id?(darkMode?`${C.cyan}15`:"#E8F8FF"):"transparent",transition:"background .15s"}}>
                 <div style={{width:36,height:36,borderRadius:10,background:tab===l.id?`${C.cyan}20`:(darkMode?"#14142E":"#F0F2FC"),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n={l.icon} s={18} c={tab===l.id?C.cyan:(darkMode?"#6868A8":"#8888BB")}/></div>
                 <div><div style={{fontSize:13,fontWeight:700,color:tab===l.id?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E")}}>{l.label}</div><div style={{fontSize:11,color:darkMode?"#6868A8":"#9898BB",marginTop:1}}>{l.sub}</div></div>
@@ -2785,7 +2663,6 @@ export default function App(){
               {Object.entries(allCurrencies).map(([k,c])=>(<button key={k} onClick={()=>{setCurKey(k);setShowCurrencyPicker(false);}} style={{width:"100%",background:curKey===k?`${C.cyan}18`:"transparent",border:"none",borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:2}}><span style={{fontSize:18}}>{c.flag}</span><div style={{textAlign:"left"}}><div style={{fontSize:13,fontWeight:700,color:curKey===k?C.cyan:(darkMode?"#EEEEFF":"#1A1A3E")}}>{c.name}</div><div style={{fontSize:11,color:"#6868A8"}}>{c.sym} · {c.code}</div></div>{curKey===k&&<div style={{marginLeft:"auto"}}><Ico n="check" s={14} c={C.cyan} sw={3}/></div>}</button>))}
             </div>}
           </div>
-          {isAdminUser(user)&&<button onClick={()=>setTab("admin")} title="Admin Console" style={{background:tab==="admin"?`${C.cyan}20`:(darkMode?C.card:"#E8EBFF"),border:`1px solid ${tab==="admin"?C.cyan:(darkMode?C.border:"#DDE2FF")}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Ico n="shield" s={16} c={tab==="admin"?C.cyan:C.muted}/></button>}
           <button onClick={()=>setDarkMode(d=>!d)} style={{background:darkMode?C.card:"#E8F4FF",border:`1px solid ${darkMode?C.border:"#CBD5E0"}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .3s"}}><div style={{transition:"transform .4s",transform:darkMode?"rotate(0deg)":"rotate(180deg)"}}><Ico n={darkMode?"sun":"moon"} s={16} c={darkMode?C.gold:"#4A5568"}/></div></button>
           <div style={{position:"relative"}}>
             <button data-dropdown onClick={()=>setShowNotifs(v=>!v)} style={{background:darkMode?C.card:"#E8EBFF",border:`1px solid ${darkMode?C.border:"#DDE2FF"}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",flexShrink:0}}>
@@ -2805,7 +2682,6 @@ export default function App(){
         {tab==="live"&&<GoLivePage fmt={fmt} isStreamer={isStreamer} onBecomeStreamer={()=>setShowBecome(true)} user={user} darkMode={darkMode}/>}
         {tab==="dash"&&<DashPage fmt={fmt} darkMode={darkMode} user={user} isStreamer={isStreamer} onSignIn={()=>setShowAuth(true)}/>}
         {tab==="prof"&&<ProfilePage fmt={fmt} isStreamer={isStreamer} user={user} onSignIn={()=>setShowAuth(true)} onSignOut={()=>supabase.auth.signOut()} onAvatarSaved={url=>setTopAvatar(url)}/>}
-        {tab==="admin"&&<AdminPage fmt={fmt} user={user} darkMode={darkMode}/>}
       </div>
       <nav className={`mobileNav${topBarHidden?" mobileNavHide":""}`}>
         {mobileTabs.map(t=>(<button key={t.id} className={`mnBtn ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
