@@ -1034,6 +1034,14 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     return()=>{stream?.getTracks().forEach(t=>t.stop());};
   },[]);
 
+  // On studio open: clean up any ghost live streams from this streamer only
+  useEffect(()=>{
+    if(!user)return;
+    supabase.from("streams").update({is_live:false})
+      .eq("streamer_id",user.id).eq("is_live",true)
+      .catch(()=>{});
+  },[user?.id]); // eslint-disable-line
+
   // Load scheduled streams from Supabase
   useEffect(()=>{
     if(!user)return;
@@ -1113,6 +1121,13 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     if(!title){alert("Please enter a stream title.");return;}
     if(!user){alert("You must be signed in.");return;}
     setStarting(true);setStreamError("");
+    try{ await _handleGoLiveInner(); }catch(unexpectedErr){
+      console.error("[GoLive] Unexpected error:",unexpectedErr);
+      setStreamError("Unexpected error: "+(unexpectedErr?.message||String(unexpectedErr)));
+      setStarting(false);restartCameraPreview();
+    }
+  };
+  const _handleGoLiveInner=async()=>{
 
     // ── Step 1: End any ghost streams this streamer left open ─────────────
     await supabase.from("streams")
@@ -1145,18 +1160,24 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       viewer_count:0,
     };
 
-    let {data:newStream,error:dbErr}=await supabase.from("streams").insert(extRow).select("id").single();
-    if(dbErr){
-      console.warn("[GoLive] Extended insert failed:",dbErr.message,". Trying minimal row...");
-      // Retry with only the required columns
-      const r2=await supabase.from("streams").insert(minRow).select("id").single();
-      if(r2.data?.id){newStream=r2.data;dbErr=null;}
+    let supabaseStreamId=null;
+    {
+      let {data:r1,error:e1}=await supabase.from("streams").insert(extRow).select("id").single();
+      if(r1?.id){supabaseStreamId=r1.id;}
       else{
-        setStreamError("DB error: "+dbErr.message);
-        setStarting(false);return;
+        // Extended insert failed (missing columns) — retry with minimal required columns
+        console.warn("[GoLive] Extended insert failed:",e1?.message,". Trying minimal row...");
+        const {data:r2,error:e2}=await supabase.from("streams").insert(minRow).select("id").single();
+        if(r2?.id){supabaseStreamId=r2.id;}
+        else if(e2){
+          // Both inserts failed — show error and stop
+          setStreamError("Stream DB error: "+(e2?.message||e1?.message||"Check Supabase INSERT policy for streams table."));
+          setStarting(false);restartCameraPreview();return;
+        }
+        // If still no id (RLS blocks select-back but insert succeeded), generate client-side id
+        if(!supabaseStreamId)supabaseStreamId=crypto.randomUUID?.()|| Date.now().toString();
       }
     }
-    const supabaseStreamId=newStream.id;
 
     // ── Step 4: Release camera then start Agora (20s timeout) ─────────────
     if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);}
@@ -2138,13 +2159,7 @@ export default function App(){
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
 
-  // Clean up ghost streams: any stream marked is_live=true but started > 12 hours ago
-  // is almost certainly a browser-close orphan and should be cleared from the feed
-  useEffect(()=>{
-    const cutoff=new Date(Date.now()-12*60*60*1000).toISOString();
-    supabase.from("streams").update({is_live:false,ended_at:new Date().toISOString()})
-      .eq("is_live",true).lt("started_at",cutoff).catch(()=>{});
-  },[]);
+  // Ghost stream cleanup moved to GoLivePage where user is always authenticated
 
   // Open stream from share link (?stream=UUID&ch=channel&sn=name&st=title)
   useEffect(()=>{
@@ -2179,6 +2194,11 @@ export default function App(){
             .then(({data:profile})=>{
               setViewing(mapStreamRow(data,profile?{[data.streamer_id]:profile}:{}));
               setStreamLinkLoading(false);
+            })
+            .catch(()=>{
+              // Profile fetch failed — still show the stream without profile data
+              try{setViewing(mapStreamRow(data,{}));}catch(_){}
+              setStreamLinkLoading(false);
             });
         } else {
           // DB read failed (RLS or stream not in DB) — fall back to URL params
@@ -2190,7 +2210,7 @@ export default function App(){
   },[]);
   const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},{id:"dash",icon:"trending",label:"EARN"},{id:"prof",icon:"profile",label:"PROFILE"}];
   // Show spinner while resolving a ?stream= link
-  if(streamLinkLoading)return(<><GS/><div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18}}><div style={{width:52,height:52,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin .9s linear infinite"}}/><div style={{fontWeight:800,fontSize:16,color:"#fff"}}>Loading stream…</div><div className="connectingPulse" style={{fontSize:13,color:C.muted}}>Fetching stream details</div></div></>);
+  if(streamLinkLoading)return(<><GS/><div style={{minHeight:"100vh",background:"#0D0A20",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18}}><div style={{width:52,height:52,borderRadius:"50%",border:"3px solid #1E1E3A",borderTopColor:"#00E5FF",animation:"spin .9s linear infinite"}}/><div style={{fontWeight:800,fontSize:18,color:"#fff"}}>Loading stream…</div><div style={{fontSize:14,color:"#6868A8"}}>Fetching stream details</div></div></>);
   // Stream not found fallback
   if(streamNotFound)return(<><GS/><div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:"0 20px",textAlign:"center"}}><div className="scaleIn" style={{display:"flex"}}><Ico n="info" s={56} c={C.muted}/></div><div style={{fontWeight:900,fontSize:22,color:"#fff"}}>Stream not found</div><div style={{fontSize:14,color:C.muted,maxWidth:320}}>This stream may have ended or the link is invalid. Check with the streamer for a new link.</div><button className="btn btnC" style={{padding:"12px 28px",fontSize:15,marginTop:8}} onClick={()=>{window.history.replaceState({},"","/");setStreamNotFound(false);}}>Back to Home</button></div></>);
   if(viewingProfile&&!viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<StreamerProfile streamer={viewingProfile} fmt={fmt} onBack={()=>setViewingProfile(null)} onStream={s=>{setViewingProfile(null);setViewing(s);}} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur}/></>);
