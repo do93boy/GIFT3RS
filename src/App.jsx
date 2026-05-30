@@ -774,11 +774,12 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg}}>
       <GS/>
-      <FloatingGifts gifts={floats} onDone={id=>setFloats(f=>f.filter(g=>g.id!==id))}/>
-      {showGift&&<GiftModal stream={stream} fmt={fmt} onClose={()=>setShowGift(false)} onSent={onGiftSent} user={user} currency={cur?.code||"USD"}/>}
-      {showSub&&<SubModal stream={stream} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={onSubscribed} user={user} currency={cur?.code||"USD"}/>}
       <div style={{display:"flex",flex:1,overflow:"hidden",flexDirection:"column"}}>
         <div className="liveWrap" ref={stageRef}>
+          {/* Rendered INSIDE the fullscreen element so gifts/modals work in fullscreen too */}
+          <FloatingGifts gifts={floats} onDone={id=>setFloats(f=>f.filter(g=>g.id!==id))}/>
+          {showGift&&<GiftModal stream={stream} fmt={fmt} onClose={()=>setShowGift(false)} onSent={onGiftSent} user={user} currency={cur?.code||"USD"}/>}
+          {showSub&&<SubModal stream={stream} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={onSubscribed} user={user} currency={cur?.code||"USD"}/>}
           <div className="liveMain">
             <div className="liveStage" style={{background:`linear-gradient(160deg,${stream.bg},#000)`}}>
               {/* Agora renders its own <video> inside this div — passing a <video> element to
@@ -820,6 +821,10 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 <div style={{marginTop:5}}><span className="tag" style={{background:`${stream.col}25`,color:stream.col,border:`1px solid ${stream.col}30`,fontSize:10}}>{stream.cat}</span></div>
               </div>
               <div style={{position:"absolute",right:14,bottom:70,display:"flex",flexDirection:"column",gap:14,alignItems:"center",zIndex:4}}>
+                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}setShowGift(true);}} title="Send a gift" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                  <div style={{filter:"drop-shadow(0 0 8px rgba(255,140,66,.7))"}}><Ico n="gift" s={26} c={C.amber}/></div>
+                  <span style={{fontSize:10,color:"#fff",fontWeight:800}}>Gift</span>
+                </button>
                 <button onClick={toggleLike} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
                   <div className={liked?"heartBeat":""} style={{filter:liked?"drop-shadow(0 0 8px #FF2D2D) drop-shadow(0 0 16px #FF2D2D88)":"none",transition:"filter .3s"}}>
                     <svg width={28} height={28} viewBox="0 0 24 24" fill={liked?"#FF2D2D":"none"} stroke={liked?"#FF2D2D":"#fff"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
