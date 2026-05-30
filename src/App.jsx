@@ -1030,6 +1030,23 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
   const [featured,setFeatured]=useState(null);
   const [loading,setLoading]=useState(true);
   const [feedError,setFeedError]=useState("");
+  const [dir,setDir]=useState({}); // {stream_id:{name,avatar}} from the live directory presence
+
+  // Read live streamers' names/avatars from the shared directory channel —
+  // works for anon viewers (no profiles table read needed).
+  useEffect(()=>{
+    const ch=supabase.channel("gift3rs_directory")
+      .on("presence",{event:"sync"},()=>{
+        const st=ch.presenceState();const m={};
+        Object.values(st).forEach(arr=>arr.forEach(p=>{if(p.stream_id)m[p.stream_id]={name:p.name,avatar:p.avatar};}));
+        setDir(m);
+      })
+      .subscribe();
+    return()=>supabase.removeChannel(ch);
+  },[]);
+
+  // Apply directory overrides so cards show the real streamer name/avatar
+  const applyDir=(s)=>{const d=s&&dir[s.id];return d?{...s,streamer:d.name||s.streamer,av:(d.name?.[0]||s.av||"S").toUpperCase(),avatar_url:d.avatar||s.avatar_url}:s;};
 
   useEffect(()=>{
     let cancelled=false;
@@ -1076,20 +1093,21 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
     return()=>{cancelled=true;supabase.removeChannel(ch);clearInterval(interval);};
   },[]);
 
-  const filtered=cat==="All"?streams:streams.filter(s=>s.cat===cat);
+  const filtered=(cat==="All"?streams:streams.filter(s=>s.cat===cat)).map(applyDir);
+  const feat=applyDir(featured);
 
   return(
     <div style={{width:"100%",minWidth:0,boxSizing:"border-box",overflowX:"hidden",padding:0,margin:0}}>
-      {featured?(
-        <div style={{position:"relative",height:320,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(featured)} className="cardIn">
-          <div style={{position:"absolute",inset:0,background:featured.thumbnail?`url(${featured.thumbnail}) center/cover no-repeat`:`linear-gradient(135deg,${featured.col}44,${C.purple}22,#000)`,transition:"transform .4s ease"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}/>
+      {feat?(
+        <div style={{position:"relative",height:320,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(feat)} className="cardIn">
+          <div style={{position:"absolute",inset:0,background:feat.thumbnail?`url(${feat.thumbnail}) center/cover no-repeat`:`linear-gradient(135deg,${feat.col}44,${C.purple}22,#000)`,transition:"transform .4s ease"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}/>
           {/* Animated glow orbs */}
-          <div style={{position:"absolute",top:-60,right:-60,width:340,height:340,borderRadius:"50%",background:`${featured.col||C.cyan}25`,filter:"blur(80px)",animation:"gradientMove 6s ease infinite",backgroundSize:"200%"}}/>
+          <div style={{position:"absolute",top:-60,right:-60,width:340,height:340,borderRadius:"50%",background:`${feat.col||C.cyan}25`,filter:"blur(80px)",animation:"gradientMove 6s ease infinite",backgroundSize:"200%"}}/>
           <div style={{position:"absolute",bottom:-40,left:-40,width:280,height:280,borderRadius:"50%",background:`${C.purple}20`,filter:"blur(60px)"}}/>
-          {!featured.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing pulseRing"><Av ch={featured.av} sz={100} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/></div></div>}
+          {!feat.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing pulseRing"><Av ch={feat.av} sz={100} g={`linear-gradient(135deg,${feat.col||C.cyan},${C.purple})`}/></div></div>}
           <div style={{position:"absolute",inset:0,background:"linear-gradient(transparent 20%,rgba(0,0,0,.97))"}}/>
           <div style={{position:"absolute",top:16,left:16,display:"flex",gap:8,alignItems:"center"}}>
-            <LiveBadge viewers={featured.viewers}/>
+            <LiveBadge viewers={feat.viewers}/>
           </div>
           <div style={{position:"absolute",top:16,right:16,display:"flex",gap:8,alignItems:"center"}}>
             <span className="tag gradientAnimate" style={{background:`linear-gradient(90deg,${C.amber},${C.gold},${C.amber})`,color:"#06060F",border:"none",fontSize:11,padding:"5px 12px",fontWeight:900,boxShadow:`0 0 14px ${C.amber}55`}}>
@@ -1097,12 +1115,12 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
             </span>
           </div>
           <div style={{position:"absolute",bottom:18,left:20,right:20}}>
-            <div style={{fontWeight:900,fontSize:22,lineHeight:1.3,marginBottom:10,color:"#fff",textShadow:"0 2px 12px rgba(0,0,0,.8)"}}>{featured.title}</div>
+            <div style={{fontWeight:900,fontSize:22,lineHeight:1.3,marginBottom:10,color:"#fff",textShadow:"0 2px 12px rgba(0,0,0,.8)"}}>{feat.title}</div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
-                {featured.avatar_url?<img src={featured.avatar_url} style={{width:32,height:32,borderRadius:"50%",objectFit:"cover",border:`2px solid ${featured.col}66`}} alt=""/>:<Av ch={featured.av} sz={32} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/>}
-                <span style={{fontSize:14,color:"rgba(255,255,255,.9)",fontWeight:700}}>{featured.streamer}</span>
-                <span className="tag" style={{background:`${featured.col||C.cyan}25`,color:featured.col||C.cyan,border:`1px solid ${featured.col||C.cyan}35`,fontSize:10,padding:"2px 8px"}}>{featured.cat}</span>
+                {feat.avatar_url?<img src={feat.avatar_url} style={{width:32,height:32,borderRadius:"50%",objectFit:"cover",border:`2px solid ${feat.col}66`}} alt=""/>:<Av ch={feat.av} sz={32} g={`linear-gradient(135deg,${feat.col||C.cyan},${C.purple})`}/>}
+                <span style={{fontSize:14,color:"rgba(255,255,255,.9)",fontWeight:700}}>{feat.streamer}</span>
+                <span className="tag" style={{background:`${feat.col||C.cyan}25`,color:feat.col||C.cyan,border:`1px solid ${feat.col||C.cyan}35`,fontSize:10,padding:"2px 8px"}}>{feat.cat}</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:10,padding:"6px 12px",backdropFilter:"blur(8px)"}}>
                 <Ico n="play" s={13} c="#fff"/>
@@ -1292,6 +1310,15 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   useEffect(()=>{
     if(isLive&&studioBcastRef.current){studioBcastRef.current.track({role:"streamer",name:myName,avatar:myAvatar});}
   },[myName,myAvatar,isLive]);
+
+  // Publish identity to the shared LIVE DIRECTORY channel so the feed can show
+  // the real name/avatar without reading the profiles table (RLS-blocked for anon).
+  useEffect(()=>{
+    if(!isLive||!streamId)return;
+    const dir=supabase.channel("gift3rs_directory",{config:{presence:{key:String(streamId)}}})
+      .subscribe(async(status)=>{ if(status==="SUBSCRIBED"){ await dir.track({stream_id:streamId,name:myName,avatar:myAvatar}); } });
+    return()=>{supabase.removeChannel(dir);};
+  },[isLive,streamId,myName,myAvatar]);
 
   useEffect(()=>{if(!isLive)return;timerRef.current=window.setInterval(()=>setSecs(s=>s+1),1000);return()=>window.clearInterval(timerRef.current);},[isLive]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[studioChat]);
