@@ -1450,6 +1450,12 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       }
     }
 
+    // Best-effort: store the streamer's display name ON the stream row so the
+    // feed shows it without depending on the profiles table / RLS. Silently
+    // ignored if the streams table has no `streamer_name` column.
+    const nameToShow=profileData?.display_name||profileData?.username||emailName;
+    supabase.from("streams").update({streamer_name:nameToShow}).eq("id",supabaseStreamId).then(null,null);
+
     // ── Step 4: Release camera then start Agora (20s timeout) ─────────────
     if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);}
     await new Promise(r=>window.setTimeout(r,1000)); // wait 1s for OS to release cam
