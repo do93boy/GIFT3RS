@@ -647,8 +647,14 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
       })
       .on("presence",{event:"sync"},()=>{
         const state=ch.presenceState();
-        // count presences whose role is "viewer" (exclude the streamer)
-        let count=0;Object.values(state).forEach(arr=>arr.forEach(m=>{if(m.role!=="streamer")count++;}));
+        // count viewers (exclude the streamer) and read the streamer's identity
+        let count=0;
+        Object.values(state).forEach(arr=>arr.forEach(m=>{
+          if(m.role==="streamer"){
+            if(m.name)setStreamerName(m.name);
+            if(m.avatar)setStreamerAvatar(m.avatar);
+          }else count++;
+        }));
         setLiveViewers(count);
       })
       .subscribe(async(status)=>{
@@ -1217,6 +1223,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [studioGifts,setStudioGifts]=useState([]);const [studioSubs,setStudioSubs]=useState([]);
   const [studioPinned,setStudioPinned]=useState(null);
   const [subscribersList,setSubscribersList]=useState([]);
+  const [myName,setMyName]=useState(user?.email?.split("@")[0]||"Streamer");
+  const [myAvatar,setMyAvatar]=useState("");
   const [sharing,setSharing]=useState(false);const [shareMode,setShareMode]=useState("both");
   const [quality,setQuality]=useState("1080p");const [tags,setTags]=useState([]);const [tagInput,setTagInput]=useState("");
   const [scheduledStreams,setScheduledStreams]=useState([]);const [schedTitle,setSchedTitle]=useState("");const [scheduledTime,setScheduledTime]=useState("");
@@ -1269,6 +1277,21 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setSubscribersList(subs.map(s=>({...s,name:pmap[s.subscriber_id]?.display_name||pmap[s.subscriber_id]?.username||"Subscriber",avatar:pmap[s.subscriber_id]?.avatar_url||""})));
   },[user]);
   useEffect(()=>{loadSubscribers();},[loadSubscribers,studioSubs.length]);
+
+  // Load the streamer's own name + avatar so we can broadcast it via presence
+  useEffect(()=>{
+    if(!user)return;
+    const fallback=user.email?.split("@")[0]||"Streamer";
+    supabase.from("profiles").select("display_name,username,avatar_url").eq("id",user.id).single()
+      .then(({data})=>{
+        setMyName(data?.display_name||data?.username||fallback);
+        if(data?.avatar_url)setMyAvatar(data.avatar_url);
+      });
+  },[user]);
+  // Re-broadcast presence identity when the resolved name/avatar changes
+  useEffect(()=>{
+    if(isLive&&studioBcastRef.current){studioBcastRef.current.track({role:"streamer",name:myName,avatar:myAvatar});}
+  },[myName,myAvatar,isLive]);
 
   useEffect(()=>{if(!isLive)return;timerRef.current=window.setInterval(()=>setSecs(s=>s+1),1000);return()=>window.clearInterval(timerRef.current);},[isLive]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[studioChat]);
@@ -1341,7 +1364,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         setViewers(count);
         supabase.from("streams").update({viewer_count:count}).eq("id",streamId).then(null,null);
       })
-      .subscribe(async(status)=>{ if(status==="SUBSCRIBED"){ await bcastCh.track({role:"streamer"}); } });
+      .subscribe(async(status)=>{ if(status==="SUBSCRIBED"){ await bcastCh.track({role:"streamer",name:myName,avatar:myAvatar}); } });
     studioBcastRef.current=bcastCh;
 
     // FALLBACK: postgres_changes for gifts (also feeds the Gifts panel)
