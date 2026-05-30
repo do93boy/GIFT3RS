@@ -1,7 +1,6 @@
 // src/lib/stream.js
 // ─────────────────────────────────────────────────────────────
 // GIFT3RS Live Streaming Module — powered by Agora
-// Handles: Go Live (host), Watch Live (audience), End Stream
 // ─────────────────────────────────────────────────────────────
 
 import AgoraRTC from "agora-rtc-sdk-ng";
@@ -9,21 +8,17 @@ import { supabase } from "./supabase";
 
 const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
 
-// Create Agora client in live streaming mode
 const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
 
-// Track local video and audio
 let localVideoTrack = null;
 let localAudioTrack = null;
 
-// ─────────────────────────────────────────────────────────────
-// GENERATE a unique channel name for a stream
-// ─────────────────────────────────────────────────────────────
-export const makeChannel = (userId) =>
-  `gift3rs_${userId}_${Date.now()}`;
+export const makeChannel = (userId) => `gift3rs_${userId}_${Date.now()}`;
 
 // ─────────────────────────────────────────────────────────────
 // START STREAMING — called when streamer clicks Go Live
+// Accepts an optional streamId; if provided, skips the DB insert
+// (App.jsx pre-inserts so we avoid duplicate live records)
 // ─────────────────────────────────────────────────────────────
 export const startStream = async ({
   userId,
@@ -32,104 +27,78 @@ export const startStream = async ({
   category,
   isSubscriberOnly = false,
   onViewerCountUpdate,
+  streamId: providedStreamId,
 }) => {
   try {
-    // 1. Set role as host
-    await client.setClientRole("host");
+    // Leave any lingering channel first
+    try { await client.leave(); } catch (_) {}
 
-    // 2. Join the Agora channel
+    await client.setClientRole("host");
     await client.join(APP_ID, channelName, null, userId);
 
-    // 3. Create camera and mic tracks
     [localVideoTrack, localAudioTrack] =
       await AgoraRTC.createMicrophoneAndCameraTracks();
 
-    // 4. Publish tracks so viewers can see/hear
     await client.publish([localVideoTrack, localAudioTrack]);
 
-    // 5. Save stream to Supabase
-    const { data, error } = await supabase
-      .from("streams")
-      .insert({
-        streamer_id:        userId,
-        title,
-        category,
-        is_live:            true,
-        is_subscriber_only: isSubscriberOnly,
-        channel_name:       channelName,
-        viewer_count:       0,
-        started_at:         new Date().toISOString(),
-      })
-      .select()
-      .single();
+    // Use the pre-inserted record if App.jsx provided one; otherwise insert
+    let recordId = providedStreamId;
+    if (!recordId) {
+      const { data, error } = await supabase
+        .from("streams")
+        .insert({
+          streamer_id:        userId,
+          title,
+          category,
+          is_live:            true,
+          is_subscriber_only: isSubscriberOnly,
+          channel_name:       channelName,
+          viewer_count:       0,
+          started_at:         new Date().toISOString(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      recordId = data.id;
+    }
 
-    if (error) throw error;
-
-    // 6. Track viewer count in real time
-    client.on("user-joined", async () => {
+    const updateCount = async () => {
       const count = client.remoteUsers.length;
-      onViewerCountUpdate && onViewerCountUpdate(count);
+      onViewerCountUpdate?.(count);
       await supabase
         .from("streams")
         .update({ viewer_count: count })
-        .eq("id", data.id);
-    });
+        .eq("id", recordId)
+        .catch(() => {});
+    };
 
-    client.on("user-left", async () => {
-      const count = client.remoteUsers.length;
-      onViewerCountUpdate && onViewerCountUpdate(count);
-      await supabase
-        .from("streams")
-        .update({ viewer_count: count })
-        .eq("id", data.id);
-    });
+    client.on("user-joined", updateCount);
+    client.on("user-left",   updateCount);
 
-    return { streamId: data.id, channelName, localVideoTrack, localAudioTrack };
+    return { streamId: recordId, channelName, localVideoTrack, localAudioTrack };
   } catch (e) {
     console.error("startStream error:", e);
-    alert("Failed to start stream: " + e.message);
     return null;
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// PLAY local video into a DOM element
-// ─────────────────────────────────────────────────────────────
 export const playLocalVideo = (elementId) => {
   if (localVideoTrack) localVideoTrack.play(elementId);
 };
 
-// ─────────────────────────────────────────────────────────────
-// TOGGLE MIC
-// ─────────────────────────────────────────────────────────────
 export const toggleMic = async (enabled) => {
   if (localAudioTrack) await localAudioTrack.setEnabled(enabled);
 };
 
-// ─────────────────────────────────────────────────────────────
-// TOGGLE CAMERA
-// ─────────────────────────────────────────────────────────────
 export const toggleCamera = async (enabled) => {
   if (localVideoTrack) await localVideoTrack.setEnabled(enabled);
 };
 
-// ─────────────────────────────────────────────────────────────
-// END STREAM
-// ─────────────────────────────────────────────────────────────
 export const endStream = async (streamId) => {
   try {
-    if (localVideoTrack) {
-      localVideoTrack.stop();
-      localVideoTrack.close();
-      localVideoTrack = null;
-    }
-    if (localAudioTrack) {
-      localAudioTrack.stop();
-      localAudioTrack.close();
-      localAudioTrack = null;
-    }
+    if (localVideoTrack) { localVideoTrack.stop(); localVideoTrack.close(); localVideoTrack = null; }
+    if (localAudioTrack) { localAudioTrack.stop(); localAudioTrack.close(); localAudioTrack = null; }
     await client.leave();
-
     if (streamId) {
       await supabase
         .from("streams")
@@ -145,6 +114,8 @@ export const endStream = async (streamId) => {
 
 // ─────────────────────────────────────────────────────────────
 // JOIN as VIEWER
+// Always leaves the current channel first so the client is clean.
+// Also subscribes to any tracks already published when we join.
 // ─────────────────────────────────────────────────────────────
 export const joinStream = async ({
   channelName,
@@ -152,19 +123,38 @@ export const joinStream = async ({
   onVideoTrack,
   onAudioTrack,
   onStreamerLeft,
+  onConnected,
 }) => {
   try {
+    // Reset client state before joining
+    try { await client.leave(); } catch (_) {}
+
     await client.setClientRole("audience");
     await client.join(APP_ID, channelName, null, userId || null);
+
+    // Subscribe to any tracks already live when we arrive
+    for (const remoteUser of client.remoteUsers) {
+      if (remoteUser.hasVideo) {
+        await client.subscribe(remoteUser, "video");
+        onVideoTrack?.(remoteUser.videoTrack);
+      }
+      if (remoteUser.hasAudio) {
+        await client.subscribe(remoteUser, "audio");
+        remoteUser.audioTrack?.play();
+        onAudioTrack?.(remoteUser.audioTrack);
+      }
+    }
+
+    onConnected?.();
 
     client.on("user-published", async (remoteUser, mediaType) => {
       await client.subscribe(remoteUser, mediaType);
       if (mediaType === "video") {
-        onVideoTrack && onVideoTrack(remoteUser.videoTrack);
+        onVideoTrack?.(remoteUser.videoTrack);
       }
       if (mediaType === "audio") {
         remoteUser.audioTrack?.play();
-        onAudioTrack && onAudioTrack(remoteUser.audioTrack);
+        onAudioTrack?.(remoteUser.audioTrack);
       }
     });
 
@@ -172,9 +162,7 @@ export const joinStream = async ({
       if (mediaType === "video") remoteUser.videoTrack?.stop();
     });
 
-    client.on("user-left", () => {
-      onStreamerLeft && onStreamerLeft();
-    });
+    client.on("user-left", () => onStreamerLeft?.());
 
     return true;
   } catch (e) {
@@ -183,21 +171,10 @@ export const joinStream = async ({
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// LEAVE as VIEWER
-// ─────────────────────────────────────────────────────────────
 export const leaveStream = async () => {
-  try {
-    await client.leave();
-    return true;
-  } catch {
-    return false;
-  }
+  try { await client.leave(); return true; } catch { return false; }
 };
 
-// ─────────────────────────────────────────────────────────────
-// GET all live streams from database
-// ─────────────────────────────────────────────────────────────
 export const getLiveStreams = async () => {
   const { data } = await supabase
     .from("streams")
@@ -207,9 +184,6 @@ export const getLiveStreams = async () => {
   return data || [];
 };
 
-// ─────────────────────────────────────────────────────────────
-// GET single stream by ID
-// ─────────────────────────────────────────────────────────────
 export const getStream = async (streamId) => {
   const { data } = await supabase
     .from("streams")

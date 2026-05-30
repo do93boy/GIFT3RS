@@ -106,9 +106,27 @@ const GS=()=>(
 @keyframes overlayIn{from{opacity:0}to{opacity:1}}
 .mBox{animation:modalUp .3s cubic-bezier(.17,.67,.3,1.2) both;}
 @keyframes modalUp{from{opacity:0;transform:scale(.88) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-@keyframes giftFly{0%{transform:translateY(0) scale(1);opacity:1}60%{transform:translateY(-100px) scale(1.2) rotate(15deg);opacity:.8}100%{transform:translateY(-160px) scale(.3) rotate(-10deg);opacity:0}}
-.gFly{animation:giftFly 1s cubic-bezier(.17,.67,.3,1.1) forwards;pointer-events:none;position:fixed;font-size:28px;z-index:600;}
+@keyframes giftFly{0%{transform:translateY(0) scale(1) rotate(0deg);opacity:1}30%{transform:translateY(-60px) scale(1.5) rotate(10deg);opacity:1}70%{transform:translateY(-130px) scale(1.1) rotate(-8deg);opacity:.7}100%{transform:translateY(-200px) scale(.2) rotate(20deg);opacity:0}}
+.gFly{animation:giftFly 1.1s cubic-bezier(.17,.67,.2,1) forwards;pointer-events:none;position:fixed;font-size:28px;z-index:600;}
 @keyframes wave{0%,100%{height:3px;opacity:.5}50%{height:18px;opacity:1}}
+@keyframes skeletonShimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.skeleton{background:linear-gradient(90deg,#14142E 25%,#1e1e42 50%,#14142E 75%);background-size:800px 100%;animation:skeletonShimmer 1.4s ease-in-out infinite;border-radius:8px;}
+@keyframes ripple{0%{transform:scale(0);opacity:.6}100%{transform:scale(2.5);opacity:0}}
+@keyframes counterUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+.counterUp{animation:counterUp .4s cubic-bezier(.17,.67,.3,1.3) both;}
+@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes pulseRing{0%{transform:scale(.95);box-shadow:0 0 0 0 rgba(0,229,255,.5)}70%{transform:scale(1);box-shadow:0 0 0 12px rgba(0,229,255,0)}100%{transform:scale(.95);box-shadow:0 0 0 0 rgba(0,229,255,0)}}
+.pulseRing{animation:pulseRing 2s ease-out infinite;}
+@keyframes gradientMove{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.gradientAnimate{background-size:300% 300%;animation:gradientMove 4s ease infinite;}
+@keyframes fadeInStagger{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.fadeInStagger{animation:fadeInStagger .4s cubic-bezier(.17,.67,.3,1.1) both;}
+@keyframes connectingPulse{0%,100%{opacity:1}50%{opacity:.4}}
+.connectingPulse{animation:connectingPulse 1.2s ease-in-out infinite;}
+@keyframes scaleIn{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+.scaleIn{animation:scaleIn .35s cubic-bezier(.34,1.56,.64,1) both;}
+@keyframes heartBeat{0%,100%{transform:scale(1)}14%{transform:scale(1.3)}28%{transform:scale(1)}42%{transform:scale(1.2)}70%{transform:scale(1)}}
+.heartBeat{animation:heartBeat 1.3s ease-in-out infinite;}
 .wBar{width:3px;border-radius:3px;background:#00E5FF;display:inline-block;margin:0 1.5px;animation:wave 1s ease-in-out infinite;}
 @keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(255,45,45,.8)}70%{box-shadow:0 0 0 10px rgba(255,45,45,0)}100%{box-shadow:0 0 0 0 rgba(255,45,45,0)}}
 .liveDot{width:8px;height:8px;border-radius:50%;background:#FF2D2D;display:inline-block;animation:livePulse 1.4s ease infinite;}
@@ -243,7 +261,7 @@ const Logo=()=>(
   </div>
 );
 const LiveBadge=({viewers})=>(
-  <div className="liveBadge"><div className="liveDot"/>LIVE{viewers&&<span style={{color:"rgba(255,255,255,.6)",fontWeight:400}}>&middot; {(viewers/1000).toFixed(1)}K</span>}</div>
+  <div className="liveBadge" style={{boxShadow:"0 0 10px rgba(255,45,45,.35)"}}><div className="liveDot heartBeat"/>LIVE{viewers>0&&<span style={{color:"rgba(255,255,255,.7)",fontWeight:600}}>&nbsp;·&nbsp;{viewers>=1000?(viewers/1000).toFixed(1)+"K":viewers}</span>}</div>
 );
 const Ico=({n,s=20,c="currentColor",sw=2})=>{
   const d={
@@ -310,7 +328,8 @@ const GIFT_EMOJIS={star:"⭐",zap:"⚡",diamond:"💎",rocket:"🚀",crown:"👑
 const FloatingGifts=({gifts,onDone})=>(
   <>{gifts.map(g=>(
     <div key={g.id} className="gFly" style={{left:g.x,bottom:140,display:"flex",flexDirection:"column",alignItems:"center",gap:4}} onAnimationEnd={()=>onDone(g.id)}>
-      <div style={{fontSize:42,filter:"drop-shadow(0 0 12px gold) drop-shadow(0 0 24px rgba(255,200,0,.6))"}}>{GIFT_EMOJIS[g.emoji]||"🎁"}</div>
+      <div style={{fontSize:46,filter:"drop-shadow(0 0 16px gold) drop-shadow(0 0 32px rgba(255,200,0,.7)) drop-shadow(0 0 48px rgba(255,150,0,.4))"}}>{GIFT_EMOJIS[g.emoji]||"🎁"}</div>
+      {g.count>1&&<div style={{background:"rgba(255,200,0,.9)",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:900,color:"#000"}}>×{g.count}</div>}
     </div>
   ))}</>
 );
@@ -470,6 +489,10 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [floats,setFloats]=useState([]);
   const [,setGiftTotal]=useState(stream.gifts);
   const [streamerLeft,setStreamerLeft]=useState(false);
+  const [connecting,setConnecting]=useState(!!stream.channel_name);
+  const [connected,setConnected]=useState(false);
+  const [joinFailed,setJoinFailed]=useState(false);
+  const [liveViewers,setLiveViewers]=useState(stream.viewers||0);
   const chatRef=useRef();
   const videoContainerRef=useRef();
 
@@ -492,11 +515,20 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
         track.play(el);
       }
     };
+    setConnecting(true);setConnected(false);setJoinFailed(false);
     joinStream({
       channelName:stream.channel_name,
       userId:user?.id||null,
-      onVideoTrack:handleVideoTrack,
+      onVideoTrack:(track)=>{handleVideoTrack(track);setConnecting(false);setConnected(true);},
+      onAudioTrack:()=>{setConnecting(false);setConnected(true);},
+      onConnected:()=>{setConnecting(false);setConnected(true);},
       onStreamerLeft:()=>setStreamerLeft(true),
+    }).then(ok=>{
+      if(!ok){setConnecting(false);setJoinFailed(true);}
+      else{
+        // Give up waiting after 10s even if no track fires
+        setTimeout(()=>{setConnecting(false);},10000);
+      }
     });
     return()=>{leaveStream();};
   },[stream.channel_name]); // eslint-disable-line
@@ -507,6 +539,8 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     const channel=supabase.channel(`chat:${stream.id}`)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:`stream_id=eq.${stream.id}`},
         payload=>{setChat(c=>[...c.slice(-25),{u:payload.new.username||"Viewer",t:payload.new.message,c:C.cyan,gift:payload.new.is_gift,id:payload.new.id}]);})
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"streams",filter:`id=eq.${stream.id}`},
+        payload=>{if(payload.new?.viewer_count!=null)setLiveViewers(payload.new.viewer_count);})
       .subscribe();
     return()=>supabase.removeChannel(channel);
   },[stream.id]);
@@ -515,7 +549,12 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     if(chatRef.current){const el=chatRef.current;const isNearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<120;if(isNearBottom)el.scrollTop=el.scrollHeight;}
   },[chat]);
 
-  const launchFloat=(emoji)=>{const id=Date.now();setFloats(f=>[...f,{id,emoji,x:60+Math.random()*200}]);};
+  const launchFloat=(emoji,amount=0)=>{
+    const count=amount>=100?5:amount>=25?3:amount>=10?2:1;
+    Array.from({length:count}).forEach((_,i)=>{
+      setTimeout(()=>{const id=Date.now()+i;setFloats(f=>[...f,{id,emoji,x:40+Math.random()*240,count}]);},i*120);
+    });
+  };
 
   const sendChat=async()=>{
     if(!user){onAuthRequired&&onAuthRequired();return;}
@@ -535,7 +574,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   };
 
   const onGiftSent=(emoji,amount,message,fmtAmt)=>{
-    playNotifSound("gift");launchFloat(emoji);setGiftTotal(g=>g+amount);
+    playNotifSound("gift");launchFloat(emoji,amount);setGiftTotal(g=>g+amount);
     const uname=user?.email?.split("@")[0]||"Viewer";
     const giftName={star:"Star",zap:"Fire",diamond:"Diamond",rocket:"Rocket",crown:"Crown",coins:"Bag",trophy:"Trophy"};
     setChat(c=>[...c,{u:uname,t:message||(emoji==="edit"?"sent a custom gift":"sent a "+giftName[emoji]),c:C.gold,gift:emoji==="edit"?"coins":emoji,customAmt:fmtAmt||null,id:Date.now()+1,type:"gift"}]);
@@ -560,21 +599,34 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
               {stream.channel_name&&<video ref={videoContainerRef} autoPlay playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",zIndex:1}}/>}
               {!stream.channel_name&&<>
                 <div style={{position:"absolute",inset:0,background:`radial-gradient(circle at 50%,${stream.col}15,transparent 60%)`}}/>
-                <div style={{zIndex:2}}>
-                  <div className="avRing" style={{display:"inline-block"}}><Av ch={stream.av} sz={72} g={`linear-gradient(135deg,${stream.col},${C.purple})`}/></div>
+                <div style={{zIndex:2,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                  <div className="avRing pulseRing" style={{display:"inline-block"}}><Av ch={stream.av} sz={72} g={`linear-gradient(135deg,${stream.col},${C.purple})`}/></div>
                   <div style={{fontSize:13,color:"rgba(255,255,255,.6)",textAlign:"center",marginTop:8}}>{stream.streamer} is live</div>
                 </div>
-                <div style={{position:"absolute",bottom:50,left:"50%",transform:"translateX(-50%)",display:"flex",gap:2,opacity:.3}}>
+                <div style={{position:"absolute",bottom:50,left:"50%",transform:"translateX(-50%)",display:"flex",gap:2,opacity:.4}}>
                   {[.9,1.1,.8,1.3,.7,1.0,.85,1.2,.75,1.1,.9,.8,1.3,.7,1.0].map((d,i)=>(<div key={i} className="wBar" style={{animationDelay:`${i*.07}s`,animationDuration:`${d}s`}}/>))}
                 </div>
               </>}
-              {streamerLeft&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3,flexDirection:"column",gap:12}}>
+              {/* Connecting overlay */}
+              {connecting&&!streamerLeft&&<div style={{position:"absolute",inset:0,background:"rgba(6,6,15,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5,flexDirection:"column",gap:14,backdropFilter:"blur(4px)"}}>
+                <div style={{width:56,height:56,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin .9s linear infinite"}}/>
+                <div style={{fontWeight:800,fontSize:15,color:"#fff"}}>Connecting to stream…</div>
+                <div className="connectingPulse" style={{fontSize:12,color:C.muted}}>Setting up live video</div>
+              </div>}
+              {/* Join failed overlay */}
+              {joinFailed&&!streamerLeft&&<div style={{position:"absolute",inset:0,background:"rgba(6,6,15,.9)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5,flexDirection:"column",gap:12,backdropFilter:"blur(4px)"}}>
+                <div className="scaleIn" style={{display:"flex",justifyContent:"center"}}><Ico n="info" s={44} c={C.amber}/></div>
+                <div style={{fontWeight:800,fontSize:15,color:"#fff",textAlign:"center"}}>Couldn't connect to live video</div>
+                <div style={{fontSize:12,color:C.muted,textAlign:"center",maxWidth:240}}>The stream may still be starting up. Try refreshing.</div>
+                <button className="btn btnC" style={{padding:"10px 22px",fontSize:13,marginTop:4}} onClick={()=>window.location.reload()}>Retry</button>
+              </div>}
+              {streamerLeft&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3,flexDirection:"column",gap:12,backdropFilter:"blur(4px)"}}>
                 <div className="icoPulse" style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n="power" s={48} c={C.muted}/></div>
                 <div style={{fontWeight:700,fontSize:16}}>Stream has ended</div>
                 <button className="btn btnC" style={{padding:"10px 20px",fontSize:13}} onClick={onBack}>Back to Home</button>
               </div>}
               <button onClick={()=>{leaveStream();onBack();}} style={{position:"absolute",top:14,left:14,background:"rgba(0,0,0,.6)",border:"none",borderRadius:10,padding:"8px",cursor:"pointer",display:"flex",backdropFilter:"blur(6px)",zIndex:4}}><Ico n="back" s={18} c="#fff"/></button>
-              <div style={{position:"absolute",top:14,right:14,display:"flex",gap:8,alignItems:"center",zIndex:4}}><LiveBadge viewers={stream.viewers}/></div>
+              <div style={{position:"absolute",top:14,right:14,display:"flex",gap:8,alignItems:"center",zIndex:4}}><LiveBadge viewers={liveViewers}/>{connected&&<div className="scaleIn" style={{background:"rgba(0,229,160,.15)",border:"1px solid rgba(0,229,160,.3)",borderRadius:7,padding:"3px 8px",fontSize:10,color:"#00E5A0",fontWeight:800,fontFamily:"Exo 2"}}>● HD</div>}</div>
               <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"14px 16px",background:"linear-gradient(transparent,rgba(0,0,0,.9))",zIndex:4}}>
                 <div style={{fontWeight:700,fontSize:14}}>{stream.title}</div>
                 <div style={{marginTop:5}}><span className="tag" style={{background:`${stream.col}25`,color:stream.col,border:`1px solid ${stream.col}30`,fontSize:10}}>{stream.cat}</span></div>
@@ -722,15 +774,21 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
           </div>
         )}
         <div style={{position:"absolute",top:8,left:8}}>{s.live?<LiveBadge/>:<div style={{background:"rgba(0,0,0,.7)",borderRadius:6,padding:"3px 7px",fontSize:9,fontFamily:"Exo 2",fontWeight:700,color:C.muted}}>OFFLINE</div>}</div>
-        {s.live&&<div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,.7)",borderRadius:6,padding:"2px 7px",display:"flex",alignItems:"center",gap:4}}><Ico n="eye" s={10} c="rgba(255,255,255,.6)"/><span style={{fontSize:9,color:"rgba(255,255,255,.65)"}}>{(s.viewers/1000).toFixed(1)}K</span></div>}
-        <div style={{position:"absolute",bottom:8,left:8,display:"flex",alignItems:"center",gap:4}}><Ico n="gift" s={12} c={C.amber}/><span className="exo" style={{fontSize:10,color:C.gold,fontWeight:800}}>{fmt(s.gifts*.1)}</span></div>
-        {hovered&&s.live&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",justifyContent:"space-between",background:"linear-gradient(transparent 50%,rgba(0,0,0,.7))",animation:"overlayIn .2s ease both"}}>
-          <div style={{display:"flex",justifyContent:"flex-end",padding:"8px"}}><div style={{background:"rgba(0,0,0,.75)",borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,border:"1px solid rgba(255,255,255,.15)"}}><div style={{width:6,height:6,borderRadius:"50%",background:"#FF2D2D",animation:"livePulse 1.4s infinite"}}/><span style={{fontSize:9,color:"#fff",fontWeight:800,fontFamily:"Exo 2",letterSpacing:.5}}>LIVE PREVIEW</span></div></div>
-          <div style={{display:"flex",justifyContent:"flex-end",padding:"8px"}} onClick={e=>{e.stopPropagation();setMuted(m=>!m);}}>
-            <button style={{background:"rgba(0,0,0,.75)",border:"1px solid rgba(255,255,255,.25)",borderRadius:"50%",width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(4px)"}} title={muted?"Turn on sound":"Mute"}>
-              <Ico n={muted?"volumeoff":"volume"} s={14} c="#fff"/>
+        {s.live&&<div className="counterUp" style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,.75)",borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:4,backdropFilter:"blur(4px)"}}><Ico n="eye" s={10} c="rgba(255,255,255,.7)"/><span style={{fontSize:9,color:"rgba(255,255,255,.8)",fontWeight:700}}>{s.viewers>=1000?(s.viewers/1000).toFixed(1)+"K":s.viewers}</span></div>}
+        {s.gifts>0&&<div style={{position:"absolute",bottom:8,left:8,display:"flex",alignItems:"center",gap:4,background:"rgba(0,0,0,.7)",borderRadius:6,padding:"3px 8px",backdropFilter:"blur(4px)"}}><Ico n="gift" s={10} c={C.amber}/><span className="exo" style={{fontSize:9,color:C.gold,fontWeight:800}}>{fmt(s.gifts*.1)}</span></div>}
+        {hovered&&s.live&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",justifyContent:"space-between",background:"linear-gradient(to bottom,rgba(0,0,0,.15) 0%,rgba(0,0,0,.65) 100%)",animation:"overlayIn .18s ease both"}}>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"8px",alignItems:"flex-start"}}>
+            <div style={{background:"rgba(0,0,0,.75)",borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,border:"1px solid rgba(255,255,255,.15)",backdropFilter:"blur(4px)"}}><div className="heartBeat" style={{width:6,height:6,borderRadius:"50%",background:"#FF2D2D"}}/><span style={{fontSize:9,color:"#fff",fontWeight:800,fontFamily:"Exo 2",letterSpacing:.5}}>LIVE PREVIEW</span></div>
+            <button style={{background:"rgba(0,0,0,.75)",border:"1px solid rgba(255,255,255,.25)",borderRadius:"50%",width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(4px)"}} onClick={e=>{e.stopPropagation();setMuted(m=>!m);}} title={muted?"Turn on sound":"Mute"}>
+              <Ico n={muted?"volumeoff":"volume"} s={13} c="#fff"/>
             </button>
           </div>
+          <div style={{display:"flex",justifyContent:"center",alignItems:"center",flex:1}}>
+            <div className="scaleIn" style={{width:50,height:50,borderRadius:"50%",background:"rgba(255,255,255,.18)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid rgba(255,255,255,.35)"}}>
+              <Ico n="play" s={20} c="#fff"/>
+            </div>
+          </div>
+          <div style={{padding:"6px 8px"}}/>
         </div>}
       </div>
       <div style={{padding:"10px 10px 12px"}}>
@@ -751,6 +809,18 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
 };
 
 /* ═══════════════════ HOME FEED ═══════════════════ */
+const SkeletonCard=({delay=0})=>(
+  <div style={{animationDelay:`${delay}ms`}} className="fadeInStagger">
+    <div style={{paddingTop:"56.25%",position:"relative",borderRadius:"0 0 0 0",overflow:"hidden"}}>
+      <div className="skeleton" style={{position:"absolute",inset:0,borderRadius:0}}/>
+    </div>
+    <div style={{padding:"10px 10px 12px"}}>
+      <div className="skeleton" style={{height:13,marginBottom:8,width:"80%"}}/>
+      <div className="skeleton" style={{height:13,width:"55%"}}/>
+    </div>
+  </div>
+);
+
 const HomeFeed=({fmt,onStream,onViewProfile})=>{
   const [cat,setCat]=useState("All");
   const [streams,setStreams]=useState([]);
@@ -762,7 +832,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
     const load=async()=>{
       const {data:rows,error}=await supabase
         .from("streams")
-        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually,is_live")
         .eq("is_live",true)
         .order("viewer_count",{ascending:false})
         .limit(30);
@@ -781,8 +851,13 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
       setLoading(false);
     };
     load();
-    const ch=supabase.channel("homefeed_streams").on("postgres_changes",{event:"*",schema:"public",table:"streams"},()=>load()).subscribe();
-    return()=>{cancelled=true;supabase.removeChannel(ch);};
+    // Real-time: re-fetch on any stream change
+    const ch=supabase.channel("homefeed_streams")
+      .on("postgres_changes",{event:"*",schema:"public",table:"streams"},()=>load())
+      .subscribe();
+    // Periodic refresh every 30 seconds as backup
+    const interval=setInterval(load,30000);
+    return()=>{cancelled=true;supabase.removeChannel(ch);clearInterval(interval);};
   },[]);
 
   const filtered=cat==="All"?streams:streams.filter(s=>s.cat===cat);
@@ -790,32 +865,54 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
   return(
     <div style={{width:"100%",minWidth:0,boxSizing:"border-box",overflowX:"hidden",padding:0,margin:0}}>
       {featured?(
-        <div style={{position:"relative",height:300,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(featured)}>
-          <div style={{position:"absolute",inset:0,background:featured.thumbnail?`url(${featured.thumbnail}) center/cover no-repeat`:`linear-gradient(160deg,${featured.col}33,#000)`}}/>
-          <div style={{position:"absolute",top:-40,right:-40,width:300,height:300,borderRadius:"50%",background:`${featured.col||C.cyan}20`,filter:"blur(60px)"}}/>
-          {!featured.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing"><Av ch={featured.av} sz={90} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/></div></div>}
-          <div style={{position:"absolute",inset:0,background:"linear-gradient(transparent 30%,rgba(0,0,0,.94))"}}/>
-          <div style={{position:"absolute",top:14,left:14}}><LiveBadge viewers={featured.viewers}/></div>
-          <div style={{position:"absolute",top:14,right:14}}><span className="tag" style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}35`,fontSize:11,padding:"4px 10px"}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}><Ico n="zap" s={10} c={C.gold}/>🔴 LIVE NOW</span></span></div>
-          <div style={{position:"absolute",bottom:16,left:18,right:18}}>
-            <div style={{fontWeight:800,fontSize:20,lineHeight:1.3,marginBottom:8,color:"#fff"}}>{featured.title}</div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              {featured.avatar_url?<img src={featured.avatar_url} style={{width:28,height:28,borderRadius:"50%",objectFit:"cover"}} alt=""/>:<Av ch={featured.av} sz={28} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/>}
-              <span style={{fontSize:13,color:"rgba(255,255,255,.85)",fontWeight:600}}>{featured.streamer}</span>
+        <div style={{position:"relative",height:320,cursor:"pointer",overflow:"hidden"}} onClick={()=>onStream(featured)} className="cardIn">
+          <div style={{position:"absolute",inset:0,background:featured.thumbnail?`url(${featured.thumbnail}) center/cover no-repeat`:`linear-gradient(135deg,${featured.col}44,${C.purple}22,#000)`,transition:"transform .4s ease"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}/>
+          {/* Animated glow orbs */}
+          <div style={{position:"absolute",top:-60,right:-60,width:340,height:340,borderRadius:"50%",background:`${featured.col||C.cyan}25`,filter:"blur(80px)",animation:"gradientMove 6s ease infinite",backgroundSize:"200%"}}/>
+          <div style={{position:"absolute",bottom:-40,left:-40,width:280,height:280,borderRadius:"50%",background:`${C.purple}20`,filter:"blur(60px)"}}/>
+          {!featured.thumbnail&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div className="avRing pulseRing"><Av ch={featured.av} sz={100} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/></div></div>}
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(transparent 20%,rgba(0,0,0,.97))"}}/>
+          <div style={{position:"absolute",top:16,left:16,display:"flex",gap:8,alignItems:"center"}}>
+            <LiveBadge viewers={featured.viewers}/>
+          </div>
+          <div style={{position:"absolute",top:16,right:16,display:"flex",gap:8,alignItems:"center"}}>
+            <span className="tag gradientAnimate" style={{background:`linear-gradient(90deg,${C.amber},${C.gold},${C.amber})`,color:"#06060F",border:"none",fontSize:11,padding:"5px 12px",fontWeight:900,boxShadow:`0 0 14px ${C.amber}55`}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><div className="liveDot heartBeat" style={{width:7,height:7}}/>FEATURED LIVE</span>
+            </span>
+          </div>
+          <div style={{position:"absolute",bottom:18,left:20,right:20}}>
+            <div style={{fontWeight:900,fontSize:22,lineHeight:1.3,marginBottom:10,color:"#fff",textShadow:"0 2px 12px rgba(0,0,0,.8)"}}>{featured.title}</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {featured.avatar_url?<img src={featured.avatar_url} style={{width:32,height:32,borderRadius:"50%",objectFit:"cover",border:`2px solid ${featured.col}66`}} alt=""/>:<Av ch={featured.av} sz={32} g={`linear-gradient(135deg,${featured.col||C.cyan},${C.purple})`}/>}
+                <span style={{fontSize:14,color:"rgba(255,255,255,.9)",fontWeight:700}}>{featured.streamer}</span>
+                <span className="tag" style={{background:`${featured.col||C.cyan}25`,color:featured.col||C.cyan,border:`1px solid ${featured.col||C.cyan}35`,fontSize:10,padding:"2px 8px"}}>{featured.cat}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:10,padding:"6px 12px",backdropFilter:"blur(8px)"}}>
+                <Ico n="play" s={13} c="#fff"/>
+                <span style={{fontSize:12,fontWeight:800,color:"#fff"}}>Watch Live</span>
+              </div>
             </div>
           </div>
         </div>
       ):(
-        <div style={{height:200,background:`linear-gradient(160deg,${C.surf},#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
-          {loading?<><div className="spin" style={{width:32,height:32,border:`3px solid ${C.border}`,borderTopColor:C.cyan,borderRadius:"50%",display:"inline-block"}}/><div style={{fontSize:13,color:C.muted}}>Loading streams...</div></>
-          :<><div className="icoFloat" style={{display:"flex"}}><Ico n="mic" s={48} c={C.muted}/></div><div style={{fontWeight:700,fontSize:18,color:C.muted}}>No one is live right now</div><div style={{fontSize:13,color:C.muted,marginTop:4}}>Be the first — go live from the Studio tab!</div></>}
+        <div style={{height:220,background:`linear-gradient(160deg,${C.surf},#000)`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+          {loading?<>
+            <div style={{width:40,height:40,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin .9s linear infinite"}}/>
+            <div style={{fontSize:13,color:C.muted}}>Finding live streams…</div>
+          </>:<>
+            <div className="icoFloat" style={{display:"flex"}}><Ico n="mic" s={52} c={C.muted}/></div>
+            <div style={{fontWeight:700,fontSize:18,color:C.muted}}>No one is live right now</div>
+            <div style={{fontSize:13,color:C.muted,marginTop:2}}>Be the first — go live from the Studio tab!</div>
+          </>}
         </div>
       )}
-      <div className="sx" style={{padding:"12px 0 0",display:"flex",gap:8}}>
-        {CATS.map(c=>(<button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}18`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap"}}>{c}</button>))}
+      <div className="sx" style={{padding:"12px 0 4px",display:"flex",gap:7}}>
+        {CATS.map(c=>(<button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}22`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap",boxShadow:cat===c?`0 0 12px ${C.cyan}33`:"none",transform:cat===c?"scale(1.05)":"scale(1)"}} onMouseEnter={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.cyan+"66";e.currentTarget.style.color=C.text;}}} onMouseLeave={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}}>{c}</button>))}
       </div>
       <div className="grid">
-        {filtered.map(s=><StreamCard key={s.id} s={s} fmt={fmt} onClick={()=>onStream(s)} onViewProfile={onViewProfile}/>)}
+        {loading&&Array.from({length:6}).map((_,i)=><SkeletonCard key={i} delay={i*60}/>)}
+        {!loading&&filtered.map((s,i)=><div key={s.id} className="fadeInStagger" style={{animationDelay:`${i*40}ms`}}><StreamCard s={s} fmt={fmt} onClick={()=>onStream(s)} onViewProfile={onViewProfile}/></div>)}
         {!loading&&filtered.length===0&&(
           <div style={{gridColumn:"1/-1",textAlign:"center",padding:"60px 0",color:C.muted}}>
             <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:12}}><Ico n="search" s={48} c={C.muted}/></div>
@@ -1021,6 +1118,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     }
     // Create Supabase stream record FIRST — guarantees it appears in HomeFeed
     const channelName=makeChannel(user.id);
+    // Read streamer's saved subscription prices so SubModal shows correct amounts
+    const {data:profilePrices}=await supabase.from("profiles").select("sub_price_weekly,sub_price_monthly,sub_price_annually").eq("id",user.id).single();
     const streamRow={
       streamer_id:user.id,
       streamer_name:user.email?.split("@")[0]||"Streamer",
@@ -1028,6 +1127,9 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       channel_name:channelName,thumbnail_url:thumbnailUrl||null,
       is_subscriber_only:subOnly,viewer_count:0,gift_total:0,
       started_at:new Date().toISOString(),
+      sub_price_weekly:profilePrices?.sub_price_weekly||1.99,
+      sub_price_monthly:profilePrices?.sub_price_monthly||5.99,
+      sub_price_annually:profilePrices?.sub_price_annually||49.99,
     };
     const {data:newStream,error:dbErr}=await supabase.from("streams").insert(streamRow).select("id").single();
     if(dbErr){
@@ -1614,8 +1716,13 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
     let avatarUrl=profile.avatarUrl.startsWith("blob:")?null:profile.avatarUrl;
     if(profile.coverFile){const url=await uploadImage(profile.coverFile,"covers");if(!url){setSaving(false);return;}coverUrl=url;}
     if(profile.avatarFile){const url=await uploadImage(profile.avatarFile,"avatars");if(!url){setSaving(false);return;}avatarUrl=url;}
-    const {error}=await supabase.from("profiles").upsert({id:user.id,display_name:profile.name,username:profile.username.replace("@","").trim().toLowerCase(),bio:profile.bio,location:profile.location,links:profile.links,cover_url:coverUrl||null,avatar_url:avatarUrl||null,sub_price_weekly:Number(profile.sp.w)||1.99,sub_price_monthly:Number(profile.sp.m)||5.99,sub_price_annually:Number(profile.sp.a)||49.99},{onConflict:"id"});
+    const spW=Math.max(0.50,Number(profile.sp.w)||1.99);
+    const spM=Math.max(0.50,Number(profile.sp.m)||5.99);
+    const spA=Math.max(0.50,Number(profile.sp.a)||49.99);
+    const {error}=await supabase.from("profiles").upsert({id:user.id,display_name:profile.name,username:profile.username.replace("@","").trim().toLowerCase(),bio:profile.bio,location:profile.location,links:profile.links,cover_url:coverUrl||null,avatar_url:avatarUrl||null,sub_price_weekly:spW,sub_price_monthly:spM,sub_price_annually:spA},{onConflict:"id"});
     if(error){alert("Save failed: "+error.message);setSaving(false);return;}
+    // Sync updated prices to all streams for this streamer so SubModal shows correct amounts
+    await supabase.from("streams").update({sub_price_weekly:spW,sub_price_monthly:spM,sub_price_annually:spA}).eq("streamer_id",user.id);
     setProfile(p=>({...p,coverUrl:coverUrl||p.coverUrl,avatarUrl:avatarUrl||p.avatarUrl,coverFile:null,avatarFile:null}));
     if(avatarUrl)onAvatarSaved&&onAvatarSaved(avatarUrl);
     setSaving(false);setSaved(true);setTimeout(()=>setSaved(false),3000);
@@ -1681,15 +1788,28 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
         </div>
         {/* Sub prices */}
         {isStreamer&&<div className="card" style={{padding:"18px",marginBottom:24,maxWidth:400}}>
-          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:14}}>Your Subscription Prices</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <div className="exo" style={{fontWeight:800,fontSize:14}}>Subscription Prices</div>
+            {!editing&&<span style={{fontSize:11,color:C.muted}}>Click Edit Profile to change</span>}
+          </div>
           {[["weekly","Weekly","w"],["monthly","Monthly","m"],["annually","Annual","a"]].map(([key,label,short])=>(
             <div key={key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <span style={{fontSize:14,fontWeight:600}}>{label}</span>
-              {editing?<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{color:C.muted,fontSize:13}}>$</span><input type="number" className="inp" style={{width:90,padding:"7px 10px",fontSize:14}} value={profile.sp[short]} onChange={e=>setProfile(p=>({...p,sp:{...p.sp,[short]:parseFloat(e.target.value)||0}}))}/></div>
-              :<span className="exo" style={{fontWeight:800,color:C.gold}}>{fmt(profile.sp[short])}</span>}
+              {editing
+                ?<div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:C.muted,fontSize:13}}>$</span>
+                    <input type="number" min="0.50" step="0.01" className="inp" style={{width:90,padding:"7px 10px",fontSize:14}}
+                      value={profile.sp[short]}
+                      onChange={e=>setProfile(p=>({...p,sp:{...p.sp,[short]:e.target.value}}))}
+                      onBlur={e=>{const v=parseFloat(e.target.value);setProfile(p=>({...p,sp:{...p.sp,[short]:isNaN(v)||v<0.50?0.50:parseFloat(v.toFixed(2))}}));}}
+                    />
+                  </div>
+                :<span className="exo" style={{fontWeight:800,color:C.gold}}>{fmt(Number(profile.sp[short]))}</span>}
             </div>
           ))}
-          <div style={{fontSize:11,color:C.muted,paddingTop:10,borderTop:`1px solid ${C.border}`}}>Platform takes 20% · You keep 80%</div>
+          <div style={{fontSize:11,color:C.muted,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+            Platform takes 20% · You keep 80% · Minimum $0.50
+          </div>
         </div>}
         <SettingsPanel user={user} onSignOut={onSignOut} onSignIn={onSignIn} isStreamer={isStreamer} fmt={fmt}/>
       </div>
