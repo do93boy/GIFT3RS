@@ -165,8 +165,10 @@ body{background:#06060F;color:#EEEEFF;font-family:'Plus Jakarta Sans',sans-serif
 .sx{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;}
 .sx::-webkit-scrollbar{display:none;}
 .testBannerOffset{top:28px!important;}
-.topBar{position:fixed;top:0;left:0;right:0;height:60px;background:rgba(6,6,15,.95);backdrop-filter:blur(20px);border-bottom:1px solid #1E1E3A;z-index:300;display:flex;align-items:center;padding:0 16px;gap:12px;}
-.mobileNav{display:flex;position:fixed;bottom:0;left:0;right:0;background:rgba(6,6,15,.96);backdrop-filter:blur(24px);border-top:1px solid #1E1E3A;z-index:300;padding:0 0 4px;}
+.topBar{position:fixed;top:0;left:0;right:0;height:60px;background:rgba(6,6,15,.95);backdrop-filter:blur(20px);border-bottom:1px solid #1E1E3A;z-index:300;display:flex;align-items:center;padding:0 16px;gap:12px;transition:transform .3s cubic-bezier(.22,1,.36,1);}
+.topBarHide{transform:translateY(-100%) !important;}
+.mobileNav{display:flex;position:fixed;bottom:0;left:0;right:0;background:rgba(6,6,15,.96);backdrop-filter:blur(24px);border-top:1px solid #1E1E3A;z-index:300;padding:0 0 4px;transition:transform .3s cubic-bezier(.22,1,.36,1);}
+.mobileNavHide{transform:translateY(100%) !important;}
 .mnBtn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px 6px;cursor:pointer;border:none;background:none;color:#6868A8;transition:color .2s,transform .15s;}
 .mnBtn:active{transform:scale(.9);}
 .mnBtn.on{color:#00E5FF;}
@@ -1019,7 +1021,7 @@ const SearchPage=({onStream,initialSearch=""})=>{
     const timer=setTimeout(async()=>{
       const {data:rows}=await supabase.from("streams")
         .select("*")
-        .or(`title.ilike.%${q}%,category.ilike.%${q}%,streamer_name.ilike.%${q}%`)
+        .or(`title.ilike.%${q}%,category.ilike.%${q}%`)
         .order("is_live",{ascending:false}).order("viewer_count",{ascending:false}).limit(20);
       const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
       let profileMap={};
@@ -1239,15 +1241,14 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       }catch(e){console.warn("Thumb upload failed",e);}
     }
 
-    // ── Step 3: Create DB record with minimal required columns first ───────
+    // ── Step 3: Create DB record ───────────────────────────────────────────
     const channelName=makeChannel(user.id);
-    // Minimal row — only columns guaranteed to exist in a basic streams table
-    const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString(),streamer_name:user.email?.split("@")[0]||"Streamer"};
-    // Extended row — add optional columns; Supabase ignores unknown ones via upsert
+    // Only include columns that definitely exist in any streams table.
+    // Never include streamer_name — that column doesn't exist in this schema.
+    const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString()};
     const {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single();
     const extRow={
       ...minRow,
-      streamer_name:user.email?.split("@")[0]||"Streamer",
       category:cat||"General",
       thumbnail_url:thumbnailUrl||null,
       viewer_count:0,
@@ -1345,7 +1346,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     if(!schedTitle||!scheduledTime){alert("Please fill in title and time.");return;}
     if(new Date(scheduledTime)<=new Date()){alert("Please choose a future date and time.");return;}
     if(!user){alert("You must be signed in.");return;}
-    const {data,error}=await supabase.from("streams").insert({streamer_id:user.id,streamer_name:user.email?.split("@")[0]||"Streamer",title:schedTitle,category:cat||"General",is_live:false,scheduled_at:new Date(scheduledTime).toISOString(),viewer_count:0,gift_total:0}).select("id").single();
+    const {data,error}=await supabase.from("streams").insert({streamer_id:user.id,title:schedTitle,category:cat||"General",is_live:false,scheduled_at:new Date(scheduledTime).toISOString()}).select("id").single();
     if(error){alert("Could not save schedule: "+error.message);return;}
     setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:data?.id||Date.now()}]);
     setSchedTitle("");setScheduledTime("");
@@ -2250,8 +2251,21 @@ export default function App(){
   const [streamLinkLoading,setStreamLinkLoading]=useState(false);
   const [streamNotFound,setStreamNotFound]=useState(false);
   const [topAvatar,setTopAvatar]=useState("");
+  const [topBarHidden,setTopBarHidden]=useState(false);
   const fetchAvatar=useCallback(async(u)=>{if(!u)return;const {data}=await supabase.from("profiles").select("avatar_url,is_streamer,fee_paid").eq("id",u.id).single();if(data?.avatar_url)setTopAvatar(data.avatar_url);if(data?.is_streamer||data?.fee_paid){setIsStreamer(true);localStorage.setItem("gift3rs_is_streamer","true");}},[]);
   useEffect(()=>{document.body.classList.toggle("light",!darkMode);document.body.style.background=darkMode?"#06060F":"#F0F2FF";document.body.style.color=darkMode?"#EEEEFF":"#1A1A3E";},[darkMode]);
+  // Auto-hide topbar: hide on scroll down, reveal on scroll up
+  useEffect(()=>{
+    let lastY=0;
+    const onScroll=()=>{
+      const y=window.scrollY;
+      if(y>lastY&&y>80){setTopBarHidden(true);}   // scrolling down past 80px → hide
+      else if(y<lastY-10){setTopBarHidden(false);}  // scrolling up 10px → show
+      lastY=y;
+    };
+    window.addEventListener("scroll",onScroll,{passive:true});
+    return()=>window.removeEventListener("scroll",onScroll);
+  },[]);
   useEffect(()=>{const handler=(e)=>{if(!e.target.closest("[data-dropdown]")){setShowNotifs(false);setShowCurrencyPicker(false);setShowMenu(false);}};document.addEventListener("mousedown",handler);return()=>document.removeEventListener("mousedown",handler);},[]);
   useEffect(()=>{
     if(!user)return;
@@ -2352,7 +2366,7 @@ export default function App(){
     <><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}
     <div style={{background:darkMode?"#06060F":"#F7F8FF",color:darkMode?"#EEEEFF":"#0F0F2E",minHeight:"100vh"}}>
     {PAYMENT_TEST_MODE&&<div className="testBanner">⚠ TEST MODE — All payments are simulated. No real money is charged.</div>}
-      <header className={`topBar${PAYMENT_TEST_MODE?" testBannerOffset":""}`}>
+      <header className={`topBar${PAYMENT_TEST_MODE?" testBannerOffset":""}${topBarHidden?" topBarHide":""}`}>
         <div style={{position:"relative",display:"none"}} className="desktopMenu" data-dropdown>
           <button data-dropdown onClick={()=>setShowMenu(v=>!v)} style={{background:showMenu?(darkMode?`${C.cyan}18`:"#E8F4FF"):"transparent",border:`1.5px solid ${showMenu?C.cyan:"transparent"}`,borderRadius:10,width:38,height:38,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,cursor:"pointer",flexShrink:0,transition:"all .2s",padding:0}}>
             <div style={{width:18,height:2,borderRadius:2,background:showMenu?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E"),transition:"all .3s",transform:showMenu?"rotate(45deg) translateY(7px)":"none"}}/>
@@ -2404,7 +2418,7 @@ export default function App(){
         {tab==="dash"&&<DashPage fmt={fmt} darkMode={darkMode} user={user} isStreamer={isStreamer} onSignIn={()=>setShowAuth(true)}/>}
         {tab==="prof"&&<ProfilePage fmt={fmt} isStreamer={isStreamer} user={user} onSignIn={()=>setShowAuth(true)} onSignOut={()=>supabase.auth.signOut()} onAvatarSaved={url=>setTopAvatar(url)}/>}
       </div>
-      <nav className="mobileNav">
+      <nav className={`mobileNav${topBarHidden?" mobileNavHide":""}`}>
         {mobileTabs.map(t=>(<button key={t.id} className={`mnBtn ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
           {t.special?(<div className="glowR" style={{width:46,height:46,borderRadius:15,background:"linear-gradient(135deg,#FF2D2D,#FF6060)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:2,marginTop:-14,boxShadow:"0 4px 20px #FF2D2D77"}}><Ico n="mic" s={21} c="#fff"/></div>):(<Ico n={t.icon} s={21} c={tab===t.id?C.cyan:C.muted}/>)}
           <span style={{color:t.special?"#FF2D2D":tab===t.id?C.cyan:C.muted,fontWeight:t.special?900:800}}>{t.label}</span>
