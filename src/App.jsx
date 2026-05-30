@@ -529,7 +529,8 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [chat,setChat]=useState([]);
   const [msg,setMsg]=useState("");
   const [liked,setLiked]=useState(()=>{try{const savedLikes=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return !!savedLikes[stream.id];}catch(_e){return false;}});
-  const [likes,setLikes]=useState(0);
+  // Start the count at 1 if this user already liked (their own like persists)
+  const [likes,setLikes]=useState(()=>{try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return ls[stream.id]?1:0;}catch(_e){return 0;}});
   const [showGift,setShowGift]=useState(false);
   const [showSub,setShowSub]=useState(false);
   const [subscribed,setSubscribed]=useState(false);
@@ -556,11 +557,11 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   useEffect(()=>{
     const sid=stream.streamer_id||stream.id;
     if(!sid||typeof sid!=="string")return;
-    supabase.from("profiles").select("display_name,username,avatar_url,is_streamer,fee_paid,streamer_verified").eq("id",sid).single()
+    supabase.from("profiles").select("*").eq("id",sid).single()
       .then(({data})=>{
         if(!data)return;
         const name=data.display_name||data.username||stream.streamer||"Streamer";
-        setStreamerName(name);
+        if(name&&name!=="Your Name")setStreamerName(name);
         if(data.avatar_url)setStreamerAvatar(data.avatar_url);
         setStreamerVerified(!!(data.is_streamer||data.fee_paid||data.streamer_verified));
       });
@@ -628,8 +629,10 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     if(!stream.id||typeof stream.id!=="string")return;
     const ch=supabase.channel(`gift3rs_stream_${stream.id}`,{config:{presence:{key:presenceKey.current}}})
       .on("broadcast",{event:"chat"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
-      .on("broadcast",{event:"gift"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);playNotifSound("gift");})
-      .on("broadcast",{event:"sub"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);playNotifSound("sub");})
+      // Other viewers SEE gifts/subs in chat but DON'T hear the sound —
+      // only the sender (locally) and the streamer (studio) hear it.
+      .on("broadcast",{event:"gift"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
+      .on("broadcast",{event:"sub"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
       .on("broadcast",{event:"like"},()=>{setLikes(l=>l+1);})
       .on("presence",{event:"sync"},()=>{
         const state=ch.presenceState();
@@ -761,7 +764,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                   </div>
                   <span style={{fontSize:10,color:liked?"#FF2D2D":"#fff",fontWeight:liked?800:400}}>{fmtCount(likes)}</span>
                 </button>
-                <button onClick={()=>{const url=`${window.location.origin}?stream=${stream.id}`;if(navigator.share){navigator.share({title:stream.title,text:`Watch ${streamerName} live on GIFT3RS!`,url});}else{navigator.clipboard.writeText(url).then(()=>alert("Stream link copied!"));}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <button onClick={()=>{let url=`${window.location.origin}?stream=${stream.id}`;if(stream.channel_name)url+=`&ch=${encodeURIComponent(stream.channel_name)}&sn=${encodeURIComponent(streamerName)}&st=${encodeURIComponent(stream.title||"Live Stream")}&sid=${stream.streamer_id||""}`;if(navigator.share){navigator.share({title:stream.title,text:`Watch ${streamerName} live on GIFT3RS!`,url});}else{navigator.clipboard.writeText(url).then(()=>alert("Stream link copied!"));}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                   <Ico n="share" s={22} c="#fff"/>
                   <span style={{fontSize:10,color:"#fff"}}>Share</span>
                 </button>
@@ -937,7 +940,7 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
       <div style={{padding:"10px 10px 12px"}}>
         <div style={{fontSize:13,fontWeight:700,lineHeight:1.35,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{s.title}</div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
-          <Av ch={s.av} sz={22} g={`linear-gradient(135deg,${s.col},${C.purple})`}/>
+          {s.avatar_url?<img src={s.avatar_url} alt="" onClick={e=>{e.stopPropagation();onViewProfile&&onViewProfile(s);}} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",flexShrink:0,cursor:"pointer"}}/>:<Av ch={s.av} sz={22} g={`linear-gradient(135deg,${s.col},${C.purple})`}/>}
           <div>
             <div style={{display:"flex",alignItems:"center",gap:4}}>
               <span onClick={e=>{e.stopPropagation();onViewProfile&&onViewProfile(s);}} style={{fontSize:12,color:C.muted,fontWeight:600,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.color=C.cyan} onMouseLeave={e=>e.currentTarget.style.color=C.muted}>{s.streamer}</span>
@@ -1161,6 +1164,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [studioTab,setStudioTab]=useState("setup");
   const [chatMsg,setChatMsg]=useState("");const [studioChat,setStudioChat]=useState([]);
   const [studioGifts,setStudioGifts]=useState([]);const [studioSubs,setStudioSubs]=useState([]);
+  const [subscribersList,setSubscribersList]=useState([]);
   const [sharing,setSharing]=useState(false);const [shareMode,setShareMode]=useState("both");
   const [quality,setQuality]=useState("1080p");const [tags,setTags]=useState([]);const [tagInput,setTagInput]=useState("");
   const [scheduledStreams,setScheduledStreams]=useState([]);const [schedTitle,setSchedTitle]=useState("");const [scheduledTime,setScheduledTime]=useState("");
@@ -1201,6 +1205,18 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     supabase.from("streams").select("id,title,scheduled_at").eq("streamer_id",user.id).eq("is_live",false).not("scheduled_at","is",null).gte("scheduled_at",new Date().toISOString()).order("scheduled_at",{ascending:true})
       .then(({data})=>{if(data)setScheduledStreams(data.map(s=>({id:s.id,title:s.title,time:s.scheduled_at})));});
   },[user]);
+
+  // Load active subscribers (with profile names) — refreshed when a new sub arrives
+  const loadSubscribers=useCallback(async()=>{
+    if(!user)return;
+    const {data:subs}=await supabase.from("subscriptions").select("*").eq("streamer_id",user.id).eq("status","active").order("created_at",{ascending:false}).limit(100);
+    if(!subs){setSubscribersList([]);return;}
+    const ids=[...new Set(subs.map(s=>s.subscriber_id).filter(Boolean))];
+    let pmap={};
+    if(ids.length){const {data:profs}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",ids);if(profs)profs.forEach(p=>{pmap[p.id]=p;});}
+    setSubscribersList(subs.map(s=>({...s,name:pmap[s.subscriber_id]?.display_name||pmap[s.subscriber_id]?.username||"Subscriber",avatar:pmap[s.subscriber_id]?.avatar_url||""})));
+  },[user]);
+  useEffect(()=>{loadSubscribers();},[loadSubscribers,studioSubs.length]);
 
   useEffect(()=>{if(!isLive)return;timerRef.current=window.setInterval(()=>setSecs(s=>s+1),1000);return()=>window.clearInterval(timerRef.current);},[isLive]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[studioChat]);
@@ -1371,7 +1387,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
     const sName=encodeURIComponent(user.email?.split("@")[0]||"Streamer");
     const sTitle=encodeURIComponent(title||"Live Stream");
-    setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}`);
+    setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}&sid=${user.id}`);
     setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
     setStarting(false);
   };
@@ -1478,8 +1494,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:data?.id||Date.now()}]);
     setSchedTitle("");setScheduledTime("");
   };
-  const activeTabs=isLive?["stream","gifts","chat","analytics","settings"]:["setup","schedule","analytics","settings"];
-  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users",gifts:"gift"};
+  const activeTabs=isLive?["stream","gifts","subs","chat","analytics","settings"]:["setup","schedule","subs","analytics","settings"];
+  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users",gifts:"gift",subs:"star"};
 
   if(!isStreamer)return(
     <div style={{padding:"24px 20px"}} className="page">
@@ -1647,6 +1663,26 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
                 <div style={{width:38,height:38,borderRadius:11,background:`${C.gold}20`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n={g.emoji&&g.emoji!=="edit"?g.emoji:"coins"} s={18} c={C.gold}/></div>
                 <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13}}>{g.u}</div><div style={{fontSize:11,color:C.muted}}>{g.msg||"sent a gift"}</div></div>
                 <div className="exo" style={{fontWeight:900,fontSize:14,color:C.gold}}>{fmt(g.amount||0)}</div>
+              </div>
+            ))}
+          </div>
+        </div>}
+
+        {/* SUBSCRIBERS TAB */}
+        {studioTab==="subs"&&<div style={{maxWidth:560}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:16}}>
+            {[["star","Active Subscribers",String(subscribersList.length),C.purple],["coins","Sub Revenue (80%)",fmt(subscribersList.reduce((a,s)=>a+(s.price_usd||0)*0.8,0)),C.emerald]].map(([icon,label,val,col],i)=>(
+              <div key={i} className="card" style={{padding:"14px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:6}}><Ico n={icon} s={20} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:16,color:col}}>{val}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{label}</div></div>
+            ))}
+          </div>
+          <div className="card" style={{padding:"16px"}}>
+            <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:12,display:"flex",alignItems:"center",gap:8}}><Ico n="users" s={16} c={C.purple}/>Your Subscribers</div>
+            {subscribersList.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.muted,fontSize:13}}>No subscribers yet. Share your channel to gain subscribers!</div>}
+            {subscribersList.map((s,i)=>(
+              <div key={i} className="chatMsg" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<subscribersList.length-1?`1px solid ${C.border}`:"none"}}>
+                {s.avatar?<img src={s.avatar} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>:<Av ch={(s.name[0]||"S").toUpperCase()} sz={38} g={`linear-gradient(135deg,${C.purple},${C.pink})`}/>}
+                <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13}}>{s.name}</div><div style={{fontSize:11,color:C.muted}}>{(s.plan||"monthly")} plan · since {s.created_at?new Date(s.created_at).toLocaleDateString():"—"}</div></div>
+                <div className="exo" style={{fontWeight:900,fontSize:13,color:C.emerald}}>{fmt((s.price_usd||0)*0.8)}</div>
               </div>
             ))}
           </div>
@@ -2017,11 +2053,50 @@ const ProfileStats=({userId,isStreamer,fmt})=>{
   );
 };
 
+/* ═══════════════════ MY SUBSCRIPTIONS (viewer) ═══════════════════ */
+const MySubscriptions=({user,fmt})=>{
+  const [subs,setSubs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState("");
+  const load=useCallback(async()=>{
+    if(!user){setLoading(false);return;}
+    const {data}=await supabase.from("subscriptions").select("*").eq("subscriber_id",user.id).eq("status","active").order("created_at",{ascending:false});
+    const rows=data||[];
+    const ids=[...new Set(rows.map(s=>s.streamer_id).filter(Boolean))];
+    let pmap={};
+    if(ids.length){const {data:profs}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",ids);if(profs)profs.forEach(p=>{pmap[p.id]=p;});}
+    setSubs(rows.map(s=>({...s,name:pmap[s.streamer_id]?.display_name||pmap[s.streamer_id]?.username||"Streamer",avatar:pmap[s.streamer_id]?.avatar_url||""})));
+    setLoading(false);
+  },[user]);
+  useEffect(()=>{load();},[load]);
+  const cancel=async(s)=>{
+    if(!window.confirm("Cancel your subscription to "+s.name+"?\n\n⚠ WARNING: This is final. NO REFUND will be issued for the current period, and you will immediately lose access to subscriber-only content."))return;
+    setBusy(s.id);
+    await supabase.from("subscriptions").update({status:"cancelled"}).eq("id",s.id);
+    await load();setBusy("");
+  };
+  if(!user)return null;
+  return(
+    <div style={{marginBottom:24,maxWidth:600}}>
+      <div className="exo" style={{fontWeight:800,fontSize:13,marginBottom:12,color:C.muted,letterSpacing:1}}>MY SUBSCRIPTIONS</div>
+      {loading?<div style={{color:C.muted,fontSize:13}}>Loading…</div>:
+        subs.length===0?<div className="card" style={{padding:"18px",textAlign:"center",color:C.muted,fontSize:13}}>You're not subscribed to any streamers yet.</div>:
+        subs.map((s,i)=>(
+          <div key={s.id||i} className="card" style={{padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+            {s.avatar?<img src={s.avatar} alt="" style={{width:42,height:42,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>:<Av ch={(s.name[0]||"S").toUpperCase()} sz={42} g={`linear-gradient(135deg,${C.purple},${C.pink})`}/>}
+            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:14}}>{s.name}</div><div style={{fontSize:11,color:C.muted}}>{(s.plan||"monthly")} · {fmt(s.price_usd||0)} · since {s.created_at?new Date(s.created_at).toLocaleDateString():"—"}</div></div>
+            <button onClick={()=>cancel(s)} disabled={busy===s.id} style={{background:"#FF2D2D15",border:"1px solid #FF2D2D40",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,flexShrink:0}}>{busy===s.id?"…":"Cancel"}</button>
+          </div>
+        ))}
+    </div>
+  );
+};
+
 const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
   const [editing,setEditing]=useState(false);
   const [saved,setSaved]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [profile,setProfile]=useState({name:"Your Name",username:"@yourusername",bio:"Content creator sharing my passion with the world",location:"Accra, Ghana",links:[{label:"Instagram",url:"https://instagram.com/you"},{label:"Twitter/X",url:"https://x.com/you"}],sp:{w:1.99,m:5.99,a:49.99},coverUrl:"",avatarUrl:"",coverFile:null,avatarFile:null});
+  const [profile,setProfile]=useState({name:"Your Name",username:"@yourusername",bio:"Content creator sharing my passion with the world",location:"Nairobi, Kenya",links:[{label:"Instagram",url:"https://instagram.com/you"},{label:"Twitter/X",url:"https://x.com/you"}],sp:{w:1.99,m:5.99,a:49.99},coverUrl:"",avatarUrl:"",coverFile:null,avatarFile:null});
   const coverRef=useRef();const avatarRef=useRef();
 
   useEffect(()=>{
@@ -2144,6 +2219,7 @@ const ProfilePage=({fmt,isStreamer,user,onSignIn,onSignOut,onAvatarSaved})=>{
             Platform takes 20% · You keep 80% · Minimum $0.50
           </div>
         </div>}
+        <MySubscriptions user={user} fmt={fmt}/>
         <SettingsPanel user={user} onSignOut={onSignOut} onSignIn={onSignIn} isStreamer={isStreamer} fmt={fmt}/>
       </div>
     </div>
@@ -2424,24 +2500,36 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
 
 /* ═══════════════════ ADMIN PAGE ═══════════════════ */
 const AdminPage=({fmt,user,darkMode})=>{
-  const [stats,setStats]=useState({streams:0,live:0,users:0,giftTotal:0,subs:0,giftCount:0});
+  const [stats,setStats]=useState({streams:0,live:0,users:0,giftTotal:0,subs:0,giftCount:0,subTotal:0,feeCount:0,cutGift:0,cutSub:0,cutFee:0,cutTotal:0});
   const [liveStreams,setLiveStreams]=useState([]);
   const [users,setUsers]=useState([]);
   const [q,setQ]=useState("");
   const [tab,setTab]=useState("overview");
   const [busy,setBusy]=useState("");
 
+  const STREAMER_FEE=4.99;
   const loadStats=async()=>{
-    const [s1,s2,s3,g,s5,lives]=await Promise.all([
+    const [s1,s2,s3,g,subRows,fee,lives]=await Promise.all([
       supabase.from("streams").select("id",{count:"exact",head:true}),
       supabase.from("streams").select("id",{count:"exact",head:true}).eq("is_live",true),
       supabase.from("profiles").select("id",{count:"exact",head:true}),
       supabase.from("gifts").select("amount_usd"),
-      supabase.from("subscriptions").select("id",{count:"exact",head:true}).eq("status","active"),
+      supabase.from("subscriptions").select("price_usd,status").eq("status","active"),
+      supabase.from("profiles").select("id",{count:"exact",head:true}).eq("fee_paid",true),
       supabase.from("streams").select("*").eq("is_live",true).order("viewer_count",{ascending:false}).limit(50),
     ]);
     const giftRows=g.data||[];
-    setStats({streams:s1.count||0,live:s2.count||0,users:s3.count||0,giftTotal:giftRows.reduce((a,x)=>a+(x.amount_usd||0),0),giftCount:giftRows.length,subs:s5.count||0});
+    const subData=subRows.data||[];
+    const giftTotal=giftRows.reduce((a,x)=>a+(x.amount_usd||0),0);
+    const subTotal=subData.reduce((a,x)=>a+(x.price_usd||0),0);
+    const feeCount=fee.count||0;
+    // Platform cuts: 10% of gifts, 20% of subscriptions, 100% of registration fees
+    const cutGift=giftTotal*0.10, cutSub=subTotal*0.20, cutFee=feeCount*STREAMER_FEE;
+    setStats({
+      streams:s1.count||0, live:s2.count||0, users:s3.count||0,
+      giftTotal, giftCount:giftRows.length, subs:subData.length, subTotal,
+      feeCount, cutGift, cutSub, cutFee, cutTotal:cutGift+cutSub+cutFee,
+    });
     setLiveStreams(lives.data||[]);
   };
   const loadUsers=async()=>{const {data}=await supabase.from("profiles").select("*").order("id").limit(200);setUsers(data||[]);};
@@ -2473,14 +2561,31 @@ const AdminPage=({fmt,user,darkMode})=>{
         {["overview","streams","users"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t}</button>))}
       </div>
 
-      {tab==="overview"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
-        <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:10}}>Platform Health</div>
-        <div style={{fontSize:13,color:C.muted,lineHeight:1.9}}>
-          <div>· <strong style={{color:C.text}}>{stats.live}</strong> streams live right now</div>
-          <div>· <strong style={{color:C.text}}>{stats.users}</strong> registered accounts</div>
-          <div>· <strong style={{color:C.text}}>{fmt(stats.giftTotal)}</strong> total gift volume across <strong style={{color:C.text}}>{stats.giftCount}</strong> gifts</div>
-          <div>· <strong style={{color:C.text}}>{stats.subs}</strong> active subscriptions</div>
-          <div>· Platform revenue (est.): <strong style={{color:C.emerald}}>{fmt(stats.giftTotal*0.10)}</strong> from gifts</div>
+      {tab==="overview"&&<div style={{maxWidth:700}}>
+        {/* PLATFORM CUT / REVENUE — the most important developer metric */}
+        <div className="card" style={{padding:"20px",marginBottom:14,background:`linear-gradient(135deg,${C.emerald}15,${C.cyan}08)`,border:`1px solid ${C.emerald}30`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div><div style={{fontSize:13,fontWeight:700}}>Total Platform Revenue (Your Cut)</div><div style={{fontSize:11,color:C.muted}}>10% of gifts + 20% of subscriptions + registration fees</div></div>
+            <div className="exo" style={{fontSize:30,fontWeight:900,color:C.emerald}}>{fmt(stats.cutTotal)}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            {[["Gifts (10%)",stats.cutGift,C.gold,`of ${fmt(stats.giftTotal)} · ${stats.giftCount} gifts`],["Subscriptions (20%)",stats.cutSub,C.purple,`of ${fmt(stats.subTotal)} · ${stats.subs} active`],["Registration fees",stats.cutFee,C.cyan,`${stats.feeCount} streamers × ${fmt(4.99)}`]].map(([label,val,col,sub],i)=>(
+              <div key={i} style={{background:C.card,borderRadius:12,padding:"12px",border:`1px solid ${col}25`}}>
+                <div className="exo" style={{fontWeight:900,fontSize:17,color:col}}>{fmt(val)}</div>
+                <div style={{fontSize:11,fontWeight:700,marginTop:3}}>{label}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>{sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card" style={{padding:"18px"}}>
+          <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:10}}>Platform Health</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.9}}>
+            <div>· <strong style={{color:C.text}}>{stats.live}</strong> streams live now · <strong style={{color:C.text}}>{stats.streams}</strong> total stream records</div>
+            <div>· <strong style={{color:C.text}}>{stats.users}</strong> registered accounts · <strong style={{color:C.text}}>{stats.feeCount}</strong> paid streamers</div>
+            <div>· <strong style={{color:C.text}}>{fmt(stats.giftTotal)}</strong> gift volume · <strong style={{color:C.text}}>{fmt(stats.subTotal)}</strong> subscription volume</div>
+            <div>· Gross transacted: <strong style={{color:C.emerald}}>{fmt(stats.giftTotal+stats.subTotal+stats.cutFee)}</strong></div>
+          </div>
         </div>
       </div>}
 
@@ -2596,8 +2701,10 @@ export default function App(){
       // Use URL params directly — works even if Supabase RLS blocks the read
       const ch=params.get("ch");
       if(ch){
+        const sid=params.get("sid")||"";
         const fallback=mapStreamRow({
           id:streamId,
+          streamer_id:sid,
           channel_name:decodeURIComponent(ch),
           title:params.get("st")?decodeURIComponent(params.get("st")):"Live Stream",
           streamer_name:params.get("sn")?decodeURIComponent(params.get("sn")):"Streamer",
@@ -2633,7 +2740,9 @@ export default function App(){
       })
       .catch(()=>tryFallback());
   },[]);
-  const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},{id:"dash",icon:"trending",label:"EARN"},{id:"prof",icon:"profile",label:"PROFILE"}];
+  const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},...(isStreamer?[{id:"dash",icon:"trending",label:"EARN"}]:[]),{id:"prof",icon:"profile",label:"PROFILE"}];
+  // Guard: if a non-streamer is somehow on the earnings tab, send them home
+  useEffect(()=>{if(tab==="dash"&&!isStreamer)setTab("home");},[tab,isStreamer]);
   // Show spinner while resolving a ?stream= link
   if(streamLinkLoading)return(<><GS/><div style={{minHeight:"100vh",background:"#0D0A20",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18}}><div style={{width:52,height:52,borderRadius:"50%",border:"3px solid #1E1E3A",borderTopColor:"#00E5FF",animation:"spin .9s linear infinite"}}/><div style={{fontWeight:800,fontSize:18,color:"#fff"}}>Loading stream…</div><div style={{fontSize:14,color:"#6868A8"}}>Fetching stream details</div></div></>);
   // Stream not found fallback
@@ -2652,7 +2761,7 @@ export default function App(){
             <div style={{width:18,height:2,borderRadius:2,background:showMenu?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E"),transition:"all .3s",transform:showMenu?"rotate(-45deg) translateY(-7px)":"none"}}/>
           </button>
           {showMenu&&<div data-dropdown style={{position:"fixed",top:64,left:8,background:darkMode?"#0B0B1C":"#fff",border:`1px solid ${darkMode?"#1E1E3A":"#E4E7F5"}`,borderRadius:18,padding:"10px 8px",zIndex:700,width:240,boxShadow:"0 12px 48px rgba(0,0,0,.4)",animation:"menuSlideIn .2s cubic-bezier(.17,.67,.3,1.2) both"}}>
-            {[{id:"home",icon:"home",label:"Home",sub:"Discover live streams"},{id:"search",icon:"search",label:"Discover",sub:"Browse categories"},{id:"live",icon:"mic",label:"Studio",sub:"Go live & manage streams"},{id:"dash",icon:"barchart",label:"Earnings",sub:"Revenue & analytics"},{id:"prof",icon:"profile",label:"Profile",sub:"Account & settings"}].map(l=>(
+            {[{id:"home",icon:"home",label:"Home",sub:"Discover live streams"},{id:"search",icon:"search",label:"Discover",sub:"Browse categories"},{id:"live",icon:"mic",label:"Studio",sub:"Go live & manage streams"},...(isStreamer?[{id:"dash",icon:"barchart",label:"Earnings",sub:"Revenue & analytics"}]:[]),...(isAdminUser(user)?[{id:"admin",icon:"shield",label:"Admin",sub:"Developer backend"}]:[]),{id:"prof",icon:"profile",label:"Profile",sub:"Account & settings"}].map(l=>(
               <button key={l.id} onClick={()=>{setTab(l.id);setShowMenu(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"left",marginBottom:2,background:tab===l.id?(darkMode?`${C.cyan}15`:"#E8F8FF"):"transparent",transition:"background .15s"}}>
                 <div style={{width:36,height:36,borderRadius:10,background:tab===l.id?`${C.cyan}20`:(darkMode?"#14142E":"#F0F2FC"),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n={l.icon} s={18} c={tab===l.id?C.cyan:(darkMode?"#6868A8":"#8888BB")}/></div>
                 <div><div style={{fontSize:13,fontWeight:700,color:tab===l.id?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E")}}>{l.label}</div><div style={{fontSize:11,color:darkMode?"#6868A8":"#9898BB",marginTop:1}}>{l.sub}</div></div>
