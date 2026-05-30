@@ -1956,8 +1956,8 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
         if(subIds.length){const {data:profs}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",subIds);if(profs)profs.forEach(p=>{pmap[p.id]=p;});}
         setSubscribers(subs.map(s=>({...s,name:pmap[s.subscriber_id]?.display_name||pmap[s.subscriber_id]?.username||"Subscriber",avatar:pmap[s.subscriber_id]?.avatar_url||""})));
       }else setSubscribers([]);
-      // Load payout account from profile
-      const {data:profile}=await supabase.from("profiles").select("payout_account").eq("id",user.id).single();
+      // Load payout account from profile (select * avoids erroring if the column is absent)
+      const {data:profile}=await supabase.from("profiles").select("*").eq("id",user.id).limit(1).then(r=>({data:r.data&&r.data[0]}));
       if(profile?.payout_account)setPayoutAccount(profile.payout_account);
       setLoading(false);
     };
@@ -1967,8 +1967,9 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
   const savePayout=async()=>{
     if(!payoutAccount.trim()){alert("Enter your payout account.");return;}
     setSavingPayout(true);
-    await supabase.from("profiles").update({payout_account:payoutAccount}).eq("id",user.id);
+    const {error}=await supabase.from("profiles").update({payout_account:payoutAccount}).eq("id",user.id);
     setSavingPayout(false);
+    if(error){alert("Could not save payout account: "+error.message+"\n\n(Ask the admin to add a 'payout_account' text column to profiles.)");return;}
     alert("Payout account saved!");
   };
 
