@@ -599,6 +599,12 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     if(!document.fullscreenElement){el.requestFullscreen?.().catch(()=>{});}
     else{document.exitFullscreen?.().catch(()=>{});}
   };
+  // Auth gate that also EXITS fullscreen, so the sign-in modal (rendered at the
+  // app root, outside the fullscreen element) becomes visible for anon users.
+  const requireAuth=()=>{
+    try{if(document.fullscreenElement)document.exitFullscreen?.();}catch(_){}
+    onAuthRequired&&onAuthRequired();
+  };
 
   useEffect(()=>{
     if(!stream.channel_name)return;
@@ -695,7 +701,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   };
 
   const sendChat=async()=>{
-    if(!user){onAuthRequired&&onAuthRequired();return;}
+    if(!user){requireAuth();return;}
     if(!msg.trim())return;
     const uname=user?.email?.split("@")[0]||"Viewer";
     const payload={u:uname,t:msg,c:C.amber,id:Date.now(),type:"chat"};
@@ -745,7 +751,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
 
   // ── Likes — persisted in stream_likes (one row per user), shared live ─────
   const toggleLike=async()=>{
-    if(!user){onAuthRequired&&onAuthRequired();return;}
+    if(!user){requireAuth();return;}
     if(typeof stream.id!=="string"){return;}
     const next=!liked;const delta=next?1:-1;
     setLiked(next);setLikes(l=>Math.max(0,l+delta));            // optimistic
@@ -820,7 +826,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 <div style={{marginTop:5}}><span className="tag" style={{background:`${stream.col}25`,color:stream.col,border:`1px solid ${stream.col}30`,fontSize:10}}>{stream.cat}</span></div>
               </div>
               <div style={{position:"absolute",right:14,bottom:70,display:"flex",flexDirection:"column",gap:14,alignItems:"center",zIndex:4}}>
-                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}setShowGift(true);}} title="Send a gift" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                <button onClick={()=>{if(!user){requireAuth();return;}setShowGift(true);}} title="Send a gift" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
                   <div style={{filter:"drop-shadow(0 0 8px rgba(255,140,66,.7))"}}><Ico n="gift" s={26} c={C.amber}/></div>
                   <span style={{fontSize:10,color:"#fff",fontWeight:800}}>Gift</span>
                 </button>
@@ -855,7 +861,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 </div>
                 <div style={{fontSize:12,color:C.muted}}>from {fmt(stream.sp.m)}/month</div>
               </div>
-              <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}if(subscribed)return;setShowSub(true);}} className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"9px 18px",fontSize:13,cursor:subscribed?"default":"pointer"}}>
+              <button onClick={()=>{if(!user){requireAuth();return;}if(subscribed)return;setShowSub(true);}} className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"9px 18px",fontSize:13,cursor:subscribed?"default":"pointer"}}>
                 {subscribed?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c="#06060F" sw={3}/>Subscribed</span>:"Subscribe"}
               </button>
             </div>
@@ -899,7 +905,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
             <div style={{padding:"10px 12px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,.2)"}}>
               <div className="sx" style={{display:"flex",gap:6,marginBottom:10}}>
                 {GIFTS_LIST.slice(0,5).map(g=>(
-                  <button key={g.name} onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}setShowGift(true);}}
+                  <button key={g.name} onClick={()=>{if(!user){requireAuth();return;}setShowGift(true);}}
                     style={{flexShrink:0,background:C.card,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"6px 10px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer",transition:"all .18s",minWidth:48}}
                     onMouseEnter={e=>{e.currentTarget.style.borderColor=C.amber;e.currentTarget.style.background=`${C.amber}15`;}}
                     onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.card;}}>
@@ -909,8 +915,8 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 ))}
               </div>
               <div style={{display:"flex",gap:8}}>
-                <input className="inp" style={{flex:1,padding:"9px 12px",fontSize:13}} placeholder={user?"Say something...":"Sign in to chat..."} value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} onClick={()=>{if(!user)onAuthRequired&&onAuthRequired();}}/>
-                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}setShowGift(true);}} className="btn btnA" style={{padding:"9px 12px",fontSize:14,display:"flex",alignItems:"center",gap:5,flexShrink:0}}><Ico n="gift" s={14} c="#06060F"/>Gift</button>
+                <input className="inp" style={{flex:1,padding:"9px 12px",fontSize:13}} placeholder={user?"Say something...":"Sign in to chat..."} value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} onClick={()=>{if(!user)requireAuth();}}/>
+                <button onClick={()=>{if(!user){requireAuth();return;}setShowGift(true);}} className="btn btnA" style={{padding:"9px 12px",fontSize:14,display:"flex",alignItems:"center",gap:5,flexShrink:0}}><Ico n="gift" s={14} c="#06060F"/>Gift</button>
               </div>
             </div>
           </div>
