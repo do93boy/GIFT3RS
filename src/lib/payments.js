@@ -140,6 +140,23 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
 // ─────────────────────────────────────────────────────────────
 // 2. SUBSCRIBE TO STREAMER
 // ─────────────────────────────────────────────────────────────
+// Activate a subscription WITHOUT relying on a unique constraint:
+// reuse an existing row (active or cancelled) if present, else insert.
+// This makes subscribe → cancel → resubscribe work every time.
+const saveSubscription = async ({ subscriberId, streamerId, plan, priceUsd }) => {
+  const { data: existing } = await supabase
+    .from("subscriptions").select("id")
+    .eq("subscriber_id", subscriberId).eq("streamer_id", streamerId).limit(1);
+  if (existing && existing.length) {
+    await supabase.from("subscriptions")
+      .update({ plan, price_usd: priceUsd, status: "active" })
+      .eq("id", existing[0].id);
+  } else {
+    await supabase.from("subscriptions")
+      .insert({ subscriber_id: subscriberId, streamer_id: streamerId, plan, price_usd: priceUsd, status: "active" });
+  }
+};
+
 export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streamerId,plan,priceUsd,currency="GHS",onSuccess,onCancel }) => {
   const platformCut = +(priceUsd*SUBSCRIPTION_PLATFORM_CUT).toFixed(2);
   const streamerCut = +(priceUsd*(1-SUBSCRIPTION_PLATFORM_CUT)).toFixed(2);
@@ -148,10 +165,7 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   // ── TEST MODE ─────────────────────────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
-    await supabase.from("subscriptions").upsert({
-      subscriber_id:subscriberId, streamer_id:streamerId,
-      plan, price_usd:priceUsd, status:"active",
-    }, { onConflict:"subscriber_id,streamer_id" });
+    await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
     onSuccess?.({ plan, priceUsd, streamerCut });
     return;
   }
@@ -161,7 +175,7 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   try {
     const handleSuccess = async (tx) => {
       await savePayment({ userId:subscriberId, type:"subscription", amountUsd:priceUsd, platformCut, recipientCut:streamerCut, currency, reference:tx.reference||reference, metadata:{receiverId:streamerId,plan} });
-      await supabase.from("subscriptions").upsert({ subscriber_id:subscriberId, streamer_id:streamerId, plan, price_usd:priceUsd, status:"active" }, { onConflict:"subscriber_id,streamer_id" });
+      await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
       onSuccess?.({ plan, priceUsd, streamerCut });
     };
     if (provider==="paystack") {
