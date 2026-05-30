@@ -197,7 +197,7 @@ export const payStreamerFee = async ({ userId,userEmail,currency="GHS",onSuccess
   // ── TEST MODE ─────────────────────────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
-    await supabase.from("profiles").update({ is_streamer:true, fee_paid:true, streamer_verified:true }).eq("id", userId);
+    await supabase.from("profiles").update({ is_streamer:true, fee_paid:true, verified:true }).eq("id", userId);
     onSuccess?.();
     return;
   }
@@ -207,7 +207,7 @@ export const payStreamerFee = async ({ userId,userEmail,currency="GHS",onSuccess
   try {
     const handleSuccess = async (tx) => {
       await savePayment({ userId, type:"streamer_fee", amountUsd:STREAMER_FEE_USD, platformCut:STREAMER_FEE_USD, recipientCut:0, currency, reference:tx.reference||reference, metadata:{userId} });
-      await supabase.from("profiles").update({ is_streamer:true, fee_paid:true, streamer_verified:true }).eq("id", userId);
+      await supabase.from("profiles").update({ is_streamer:true, fee_paid:true, verified:true }).eq("id", userId);
       onSuccess?.();
     };
     if (provider==="paystack") {

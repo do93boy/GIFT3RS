@@ -67,11 +67,16 @@ const mapStreamRow=(s,profileMap={})=>{
     id:s.id, streamer:name, av:(name[0]||"S").toUpperCase(),
     title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0, likes:s.likes||0,
     cat:s.category||"General", bg:"#0D0A20", col,
-    verified:!!(profile.is_streamer||profile.fee_paid||profile.streamer_verified),
+    verified:!!(profile.verified||profile.is_streamer||profile.fee_paid),
     live:s.is_live!==false,
     channel_name:s.channel_name||"", thumbnail:s.thumbnail_url||"",
     streamer_id:s.streamer_id||"",
-    sp:{w:s.sub_price_weekly||1.99,m:s.sub_price_monthly||5.99,a:s.sub_price_annually||49.99},
+    // Subscription prices live on the streamer's profile, not the stream row
+    sp:{
+      w:profile.sub_price_weekly||s.sub_price_weekly||1.99,
+      m:profile.sub_price_monthly||s.sub_price_monthly||5.99,
+      a:profile.sub_price_annually||s.sub_price_annually||49.99,
+    },
     avatar_url:profile.avatar_url||"", isReal:true,
   };
 };
@@ -565,7 +570,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
         const name=data.display_name||data.username||stream.streamer||"Streamer";
         if(name&&name!=="Your Name")setStreamerName(name);
         if(data.avatar_url)setStreamerAvatar(data.avatar_url);
-        setStreamerVerified(!!(data.is_streamer||data.fee_paid||data.streamer_verified));
+        setStreamerVerified(!!(data.verified||data.is_streamer||data.fee_paid));
       });
   },[stream.streamer_id,stream.id]);
 
