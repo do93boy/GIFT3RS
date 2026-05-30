@@ -45,7 +45,7 @@ const CURRENCIES={
   GH:{code:"GHS",sym:"GH₵",rate:15.2,flag:"🇬🇭",name:"Ghanaian Cedi"},
 };
 function useCurrency(){
-  const [curKey,setCurKey]=useState("KE");
+  const [curKey,setCurKey]=useState("US");
   const cur=CURRENCIES[curKey];
   const fmt=useCallback((usd)=>{
     const n=usd*cur.rate;
