@@ -1004,7 +1004,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [isMuted,setIsMuted]=useState(false);const [copied,setCopied]=useState(false);
   const [shareLink,setShareLink]=useState("");
   const videoRef=useRef();
-  const liveVideoRef=useRef();
+  const liveVideoRef=useRef();   // <div> container — Agora track.play() renders here
+  const captureRef=useRef();     // hidden <video> — used only for thumbnail frame capture
   const timerRef=useRef();const chatRef=useRef();
   const localVideoTrack=useRef(null);const localAudioTrack=useRef(null);
 
@@ -1032,31 +1033,41 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     }
   },[studioTab,isLive,previewStream]);
 
-  // Attach live camera via getMediaStreamTrack (reliable)
+  // Attach live camera — use Agora's native track.play(div) which reliably renders
   useEffect(()=>{
     if(!isLive||studioTab!=="stream")return;
     let tid;let attempts=0;
     const attach=()=>{
-      const el=liveVideoRef.current;
-      if(!el){if(attempts++<30){tid=window.setTimeout(attach,150);}return;}
+      const div=liveVideoRef.current;
+      if(!div){if(attempts++<30){tid=window.setTimeout(attach,150);}return;}
       const track=localVideoTrack.current;
-      if(!track)return;
+      if(!track){if(attempts++<20){tid=window.setTimeout(attach,300);}return;}
       try{
-        const raw=track.getMediaStreamTrack?.();
-        if(raw){el.srcObject=new MediaStream([raw]);el.muted=true;el.play().catch(()=>{});}
-        else if(track.play){track.play(el);}
-        else{playLocalVideo(el);}
+        // Agora's track.play(HTMLElement) is the reliable API for local tracks.
+        // It creates its own <video> inside the container div.
+        if(track.play){
+          // Clear any previous render first
+          div.innerHTML="";
+          div.style.position="relative";
+          track.play(div);
+        }
+        // Also wire srcObject on the hidden capture <video> for thumbnail snapshots
+        const cap=captureRef.current;
+        if(cap){
+          const raw=track.getMediaStreamTrack?.();
+          if(raw){cap.srcObject=new MediaStream([raw]);cap.muted=true;cap.play().catch(()=>{});}
+        }
       }catch(e){console.warn("Live preview failed",e);}
     };
-    tid=window.setTimeout(attach,200);
-    return()=>clearTimeout(tid);
+    tid=window.setTimeout(attach,300);
+    return()=>{clearTimeout(tid);};
   },[isLive,studioTab]); // eslint-disable-line
 
   // Periodic frame capture → Supabase (hover preview for viewers)
   useEffect(()=>{
     if(!isLive||!streamId)return;
     const capture=async()=>{
-      const el=liveVideoRef.current;
+      const el=captureRef.current;
       if(!el||!el.videoWidth)return;
       try{
         const W=Math.min(el.videoWidth,1280);const H=Math.min(el.videoHeight,720);
@@ -1162,7 +1173,10 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       if(!localVideoTrack.current&&result.localVideoTrack)localVideoTrack.current=result.localVideoTrack;
       if(!localAudioTrack.current&&result.localAudioTrack)localAudioTrack.current=result.localAudioTrack;
       setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
-      setShareLink(`${window.location.origin}?stream=${supabaseStreamId}`);
+      // Encode channel_name + display name in URL so viewers can join even if Supabase RLS blocks their read
+      const sName=encodeURIComponent(user.email?.split("@")[0]||"Streamer");
+      const sTitle=encodeURIComponent(title||"Live Stream");
+      setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}`);
       setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
     } else {
       await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
@@ -1174,7 +1188,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const handleEndStream=async()=>{
     if(!window.confirm("Are you sure you want to end the stream?"))return;
     window.clearInterval(timerRef.current);await endStream(streamId);
-    if(liveVideoRef.current)liveVideoRef.current.srcObject=null;
+    if(liveVideoRef.current)liveVideoRef.current.innerHTML="";
+    if(captureRef.current){captureRef.current.srcObject=null;}
     localVideoTrack.current=null;localAudioTrack.current=null;
     if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0,live_thumbnail_url:null,ended_at:new Date().toISOString()}).eq("id",streamId).catch(()=>{});}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
@@ -1192,7 +1207,13 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     if(localVideoTrack.current?.setEnabled)await localVideoTrack.current.setEnabled(next);
     else await toggleCamera(next);
     if(next&&liveVideoRef.current&&localVideoTrack.current){
-      try{const raw=localVideoTrack.current.getMediaStreamTrack?.();if(raw){liveVideoRef.current.srcObject=new MediaStream([raw]);liveVideoRef.current.muted=true;liveVideoRef.current.play().catch(()=>{});}}catch(_e){/* camera re-attach failed silently */}
+      try{
+        const div=liveVideoRef.current;
+        const track=localVideoTrack.current;
+        if(track.play){div.innerHTML="";track.play(div);}
+        const cap=captureRef.current;
+        if(cap){const raw=track.getMediaStreamTrack?.();if(raw){cap.srcObject=new MediaStream([raw]);cap.muted=true;cap.play().catch(()=>{});}}
+      }catch(_e){}
     }
   };
   const sendStudioMsg=async()=>{
@@ -1298,7 +1319,10 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
         {studioTab==="stream"&&isLive&&<div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
           <div style={{flex:"1 1 400px",minWidth:0}}>
             <div style={{borderRadius:18,overflow:"hidden",marginBottom:12,aspectRatio:"16/9",position:"relative",background:"#000"}}>
-              <video ref={liveVideoRef} autoPlay muted playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+              {/* Agora renders a <video> inside this div via track.play() */}
+              <div ref={liveVideoRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",overflow:"hidden",background:"#000"}}/>
+              {/* Hidden video for frame snapshots only */}
+              <video ref={captureRef} autoPlay muted playsInline style={{display:"none"}}/>
               <div style={{position:"absolute",top:12,left:12,display:"flex",gap:8,alignItems:"center"}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,color:"#FF2D2D",fontSize:13,background:"rgba(0,0,0,.65)",padding:"3px 10px",borderRadius:6}}>ON AIR — {dur}</span></div>
               <div style={{position:"absolute",top:12,right:12,background:"rgba(0,0,0,.75)",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#fff",display:"flex",alignItems:"center",gap:5}}><Ico n="eye" s={11} c="#fff"/>{viewers.toLocaleString()} watching</div>
               <div style={{position:"absolute",bottom:12,left:"50%",transform:"translateX(-50%)",display:"flex",gap:8}}>
@@ -2105,6 +2129,8 @@ export default function App(){
   const [user,setUser]=useState(null);
   const [showAuth,setShowAuth]=useState(false);
   const [search,setSearch]=useState("");
+  const [streamLinkLoading,setStreamLinkLoading]=useState(false);
+  const [streamNotFound,setStreamNotFound]=useState(false);
   const [topAvatar,setTopAvatar]=useState("");
   const fetchAvatar=useCallback(async(u)=>{if(!u)return;const {data}=await supabase.from("profiles").select("avatar_url,is_streamer,fee_paid").eq("id",u.id).single();if(data?.avatar_url)setTopAvatar(data.avatar_url);if(data?.is_streamer||data?.fee_paid){setIsStreamer(true);localStorage.setItem("gift3rs_is_streamer","true");}},[]);
   useEffect(()=>{document.body.classList.toggle("light",!darkMode);document.body.style.background=darkMode?"#06060F":"#F0F2FF";document.body.style.color=darkMode?"#EEEEFF":"#1A1A3E";},[darkMode]);
@@ -2112,22 +2138,55 @@ export default function App(){
   useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
 
-  // Open stream from share link (?stream=UUID)
+  // Open stream from share link (?stream=UUID&ch=channel&sn=name&st=title)
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const streamId=params.get("stream");
     if(!streamId)return;
-    supabase.from("streams").select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually").eq("id",streamId).single()
-      .then(({data})=>{
-        if(data){
+    setStreamLinkLoading(true);
+    const tryFallback=()=>{
+      // Use URL params directly — works even if Supabase RLS blocks the read
+      const ch=params.get("ch");
+      if(ch){
+        const fallback=mapStreamRow({
+          id:streamId,
+          channel_name:decodeURIComponent(ch),
+          title:params.get("st")?decodeURIComponent(params.get("st")):"Live Stream",
+          streamer_name:params.get("sn")?decodeURIComponent(params.get("sn")):"Streamer",
+          is_live:true,viewer_count:0,gift_total:0,category:"General",
+          sub_price_weekly:1.99,sub_price_monthly:5.99,sub_price_annually:49.99,
+        });
+        setViewing(fallback);
+      } else {
+        setStreamNotFound(true);
+      }
+      setStreamLinkLoading(false);
+    };
+    supabase.from("streams")
+      .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually")
+      .eq("id",streamId).single()
+      .then(({data,error})=>{
+        if(data&&!error){
           supabase.from("profiles").select("display_name,username,avatar_url").eq("id",data.streamer_id).single()
-            .then(({data:profile})=>{setViewing(mapStreamRow(data,profile?{[data.streamer_id]:profile}:{}));});
+            .then(({data:profile})=>{
+              setViewing(mapStreamRow(data,profile?{[data.streamer_id]:profile}:{}));
+              setStreamLinkLoading(false);
+            });
+        } else {
+          // DB read failed (RLS or stream not in DB) — fall back to URL params
+          console.warn("[ShareLink] Supabase query failed:",error?.message||"no data");
+          tryFallback();
         }
-      });
+      })
+      .catch(()=>tryFallback());
   },[]);
   const mobileTabs=[{id:"home",icon:"home",label:"HOME"},{id:"search",icon:"search",label:"SEARCH"},{id:"live",icon:"mic",label:"LIVE",special:true},{id:"dash",icon:"trending",label:"EARN"},{id:"prof",icon:"profile",label:"PROFILE"}];
+  // Show spinner while resolving a ?stream= link
+  if(streamLinkLoading)return(<><GS/><div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18}}><div style={{width:52,height:52,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin .9s linear infinite"}}/><div style={{fontWeight:800,fontSize:16,color:"#fff"}}>Loading stream…</div><div className="connectingPulse" style={{fontSize:13,color:C.muted}}>Fetching stream details</div></div></>);
+  // Stream not found fallback
+  if(streamNotFound)return(<><GS/><div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:"0 20px",textAlign:"center"}}><div className="scaleIn" style={{display:"flex"}}><Ico n="info" s={56} c={C.muted}/></div><div style={{fontWeight:900,fontSize:22,color:"#fff"}}>Stream not found</div><div style={{fontSize:14,color:C.muted,maxWidth:320}}>This stream may have ended or the link is invalid. Check with the streamer for a new link.</div><button className="btn btnC" style={{padding:"12px 28px",fontSize:15,marginTop:8}} onClick={()=>{window.history.replaceState({},"","/");setStreamNotFound(false);}}>Back to Home</button></div></>);
   if(viewingProfile&&!viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<StreamerProfile streamer={viewingProfile} fmt={fmt} onBack={()=>setViewingProfile(null)} onStream={s=>{setViewingProfile(null);setViewing(s);}} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur}/></>);
-  if(viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<LiveViewer stream={viewing} fmt={fmt} onBack={()=>setViewing(null)} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur} onViewProfile={s=>{setViewing(null);setViewingProfile(s);}}/></>);
+  if(viewing)return(<><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}<LiveViewer stream={viewing} fmt={fmt} onBack={()=>{setViewing(null);window.history.replaceState({},"","/");}} user={user} onAuthRequired={()=>setShowAuth(true)} cur={cur} onViewProfile={s=>{setViewing(null);setViewingProfile(s);}}/></>);
   if(showBecome)return(<><GS/><div style={{minHeight:"100vh"}}><div className="topBar"><Logo/></div><div style={{paddingTop:60}}><BecomeStreamer fmt={fmt} onBack={()=>setShowBecome(false)} user={user} currency={cur?.code||"USD"} onComplete={()=>{setIsStreamer(true);setShowBecome(false);setTab("live");localStorage.setItem("gift3rs_is_streamer","true");}}/></div></div></>);
   return(
     <><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}
