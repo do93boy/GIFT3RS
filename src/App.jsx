@@ -506,28 +506,33 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     const handleVideoTrack=(track)=>{
       if(!videoContainerRef.current)return;
       const el=videoContainerRef.current;
+      // Use Agora's native play() first — it's the most reliable for remote tracks.
+      // For <video> elements, Agora play() sets srcObject internally.
+      try{
+        if(track.play){track.play(el);return;}
+      }catch(_){}
+      // Fallback: manually wire srcObject
       const raw=track.getMediaStreamTrack?.();
       if(raw){
         el.srcObject=new MediaStream([raw]);
         el.muted=false;
         el.play().catch(()=>{el.muted=true;el.play().catch(()=>{});});
-      } else if(track.play){
-        track.play(el);
       }
     };
     setConnecting(true);setConnected(false);setJoinFailed(false);
     joinStream({
       channelName:stream.channel_name,
-      userId:user?.id||null,
       onVideoTrack:(track)=>{handleVideoTrack(track);setConnecting(false);setConnected(true);},
       onAudioTrack:()=>{setConnecting(false);setConnected(true);},
-      onConnected:()=>{setConnecting(false);setConnected(true);},
+      onConnected:()=>{
+        setConnecting(false);setConnected(true);
+      },
       onStreamerLeft:()=>setStreamerLeft(true),
     }).then(ok=>{
       if(!ok){setConnecting(false);setJoinFailed(true);}
       else{
-        // Give up waiting after 10s even if no track fires
-        setTimeout(()=>{setConnecting(false);},10000);
+        // If host hasn't published yet, clear spinner after 15s
+        setTimeout(()=>setConnecting(false),15000);
       }
     });
     return()=>{leaveStream();};
@@ -826,6 +831,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
   const [streams,setStreams]=useState([]);
   const [featured,setFeatured]=useState(null);
   const [loading,setLoading]=useState(true);
+  const [feedError,setFeedError]=useState("");
 
   useEffect(()=>{
     let cancelled=false;
@@ -837,7 +843,12 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
         .order("viewer_count",{ascending:false})
         .limit(30);
       if(cancelled)return;
-      if(error){console.error("[HomeFeed]",error.message);setLoading(false);return;}
+      if(error){
+        console.error("[HomeFeed]",error.message);
+        setFeedError(error.message);
+        setLoading(false);return;
+      }
+      setFeedError("");
       const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
       let profileMap={};
       if(ids.length>0){
@@ -907,6 +918,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
           </>}
         </div>
       )}
+      {feedError&&<div style={{margin:"0 0 4px",padding:"10px 14px",background:"#FF2D2D12",border:"1px solid #FF2D2D30",borderRadius:10,fontSize:12,color:"#FF8080",display:"flex",alignItems:"center",gap:8}}><Ico n="info" s={14} c="#FF8080"/>Couldn't load streams: {feedError} — check Supabase RLS (streams table needs a SELECT policy for anon/authenticated).</div>}
       <div className="sx" style={{padding:"12px 0 4px",display:"flex",gap:7}}>
         {CATS.map(c=>(<button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}22`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap",boxShadow:cat===c?`0 0 12px ${C.cyan}33`:"none",transform:cat===c?"scale(1.05)":"scale(1)"}} onMouseEnter={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.cyan+"66";e.currentTarget.style.color=C.text;}}} onMouseLeave={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}}>{c}</button>))}
       </div>
@@ -1159,28 +1171,30 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       }
     } else {streamRow.id=newStream.id;}
     const supabaseStreamId=streamRow.id;
-    // Release camera for Agora
-    if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);await new Promise(r=>window.setTimeout(r,600));}
+    // Release camera so Agora can open it fresh
+    if(previewStream){previewStream.getTracks().forEach(t=>t.stop());setPreviewStream(null);await new Promise(r=>window.setTimeout(r,800));}
     // Start Agora
-    const result=await startStream({userId:user.id,channelName,title,category:cat||"General",isSubscriberOnly:subOnly,thumbnailUrl,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).catch(()=>{});}});
+    let result=null;
+    try{
+      result=await startStream({userId:user.id,channelName,title,category:cat||"General",isSubscriberOnly:subOnly,thumbnailUrl,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).catch(()=>{});}});
+    }catch(agoraErr){
+      // startStream now throws so we get the real Agora error message
+      const msg=agoraErr?.message||String(agoraErr);
+      setStreamError("Agora error: "+msg);
+      await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
+      setStarting(false);return;
+    }
     if(result){
-      const candidates=[result.localVideoTrack,result.localAudioTrack,result.videoTrack,result.audioTrack].filter(Boolean);
-      for(const t of candidates){
-        const type=t.trackMediaType||t._mediaType||t.constructor?.name?.toLowerCase()||"";
-        if(type.includes("video"))localVideoTrack.current=t;
-        else if(type.includes("audio"))localAudioTrack.current=t;
-      }
-      if(!localVideoTrack.current&&result.localVideoTrack)localVideoTrack.current=result.localVideoTrack;
-      if(!localAudioTrack.current&&result.localAudioTrack)localAudioTrack.current=result.localAudioTrack;
+      localVideoTrack.current=result.localVideoTrack||null;
+      localAudioTrack.current=result.localAudioTrack||null;
       setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
-      // Encode channel_name + display name in URL so viewers can join even if Supabase RLS blocks their read
       const sName=encodeURIComponent(user.email?.split("@")[0]||"Streamer");
       const sTitle=encodeURIComponent(title||"Live Stream");
       setShareLink(`${window.location.origin}?stream=${supabaseStreamId}&ch=${encodeURIComponent(channelName)}&sn=${sName}&st=${sTitle}`);
       setStudioChat([{u:"System",t:"You are now live! Welcome your viewers. 🔴",id:Date.now(),type:"system"}]);
     } else {
       await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
-      setStreamError("Failed to start stream. Check camera permissions.");
+      setStreamError("Failed to start stream. Check camera/mic permissions and try again.");
     }
     setStarting(false);
   };

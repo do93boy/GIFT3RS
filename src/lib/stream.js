@@ -1,25 +1,49 @@
-// src/lib/stream.js
-// ─────────────────────────────────────────────────────────────
-// GIFT3RS Live Streaming Module — powered by Agora
-// ─────────────────────────────────────────────────────────────
+// src/lib/stream.js  — GIFT3RS Live Streaming (Agora RTC SDK NG)
+//
+// KEY DESIGN CHOICES
+// ──────────────────
+// 1. Separate host/audience clients — never share one client between roles.
+//    Sharing a single client causes "channel already joined" or role-switch
+//    errors that kill the join silently.
+//
+// 2. Always use uid = null — Agora auto-assigns a numeric UID.
+//    Passing a Supabase UUID string as uid means Agora registers the channel
+//    with string-uid mode; any viewer that then joins with null (numeric) gets
+//    rejected with INVALID_OPERATION.  Using null everywhere keeps both sides
+//    in numeric mode and avoids the mismatch entirely.
+//
+// 3. startStream skips the DB insert when a streamId is provided — App.jsx
+//    pre-inserts so we don't end up with two live records.
 
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { supabase } from "./supabase";
 
 const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
 
-const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+// ── Two separate clients — host stays host, audience stays audience ──────────
+let hostClient   = null;
+let audienceClient = null;
 
 let localVideoTrack = null;
 let localAudioTrack = null;
 
+const getHostClient = () => {
+  if (!hostClient) hostClient = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+  return hostClient;
+};
+
+const getFreshAudienceClient = () => {
+  // Always create a brand-new client for viewers so there is zero leftover state
+  audienceClient = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+  return audienceClient;
+};
+
+// ────────────────────────────────────────────────────────────────────────────
 export const makeChannel = (userId) => `gift3rs_${userId}_${Date.now()}`;
 
-// ─────────────────────────────────────────────────────────────
-// START STREAMING — called when streamer clicks Go Live
-// Accepts an optional streamId; if provided, skips the DB insert
-// (App.jsx pre-inserts so we avoid duplicate live records)
-// ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// START STREAMING
+// ────────────────────────────────────────────────────────────────────────────
 export const startStream = async ({
   userId,
   channelName,
@@ -29,19 +53,24 @@ export const startStream = async ({
   onViewerCountUpdate,
   streamId: providedStreamId,
 }) => {
+  const hc = getHostClient();
   try {
-    // Leave any lingering channel first
-    try { await client.leave(); } catch (_) {}
+    // Clean slate — leave if somehow still connected
+    try { await hc.leave(); } catch (_) {}
 
-    await client.setClientRole("host");
-    await client.join(APP_ID, channelName, null, userId);
+    await hc.setClientRole("host");
+
+    // ⚠ Use null UID so Agora uses numeric auto-assignment.
+    //   Passing a Supabase UUID string here would lock the channel into
+    //   string-uid mode, then viewers with null uid would be rejected.
+    await hc.join(APP_ID, channelName, null, null);
 
     [localVideoTrack, localAudioTrack] =
       await AgoraRTC.createMicrophoneAndCameraTracks();
 
-    await client.publish([localVideoTrack, localAudioTrack]);
+    await hc.publish([localVideoTrack, localAudioTrack]);
 
-    // Use the pre-inserted record if App.jsx provided one; otherwise insert
+    // Use the pre-inserted record ID from App.jsx if provided
     let recordId = providedStreamId;
     if (!recordId) {
       const { data, error } = await supabase
@@ -63,7 +92,7 @@ export const startStream = async ({
     }
 
     const updateCount = async () => {
-      const count = client.remoteUsers.length;
+      const count = hc.remoteUsers.length;
       onViewerCountUpdate?.(count);
       await supabase
         .from("streams")
@@ -72,18 +101,21 @@ export const startStream = async ({
         .catch(() => {});
     };
 
-    client.on("user-joined", updateCount);
-    client.on("user-left",   updateCount);
+    hc.on("user-joined", updateCount);
+    hc.on("user-left",   updateCount);
 
     return { streamId: recordId, channelName, localVideoTrack, localAudioTrack };
   } catch (e) {
-    console.error("startStream error:", e);
-    return null;
+    console.error("[startStream] error:", e);
+    // Surface a human-readable message so streamError in App.jsx is useful
+    const msg = e?.message || String(e);
+    throw new Error(msg);   // re-throw so App.jsx can catch it
   }
 };
 
-export const playLocalVideo = (elementId) => {
-  if (localVideoTrack) localVideoTrack.play(elementId);
+// ────────────────────────────────────────────────────────────────────────────
+export const playLocalVideo = (element) => {
+  if (localVideoTrack && element) localVideoTrack.play(element);
 };
 
 export const toggleMic = async (enabled) => {
@@ -94,11 +126,14 @@ export const toggleCamera = async (enabled) => {
   if (localVideoTrack) await localVideoTrack.setEnabled(enabled);
 };
 
+// ────────────────────────────────────────────────────────────────────────────
+// END STREAM
+// ────────────────────────────────────────────────────────────────────────────
 export const endStream = async (streamId) => {
   try {
     if (localVideoTrack) { localVideoTrack.stop(); localVideoTrack.close(); localVideoTrack = null; }
     if (localAudioTrack) { localAudioTrack.stop(); localAudioTrack.close(); localAudioTrack = null; }
-    await client.leave();
+    if (hostClient) { await hostClient.leave().catch(() => {}); }
     if (streamId) {
       await supabase
         .from("streams")
@@ -107,72 +142,83 @@ export const endStream = async (streamId) => {
     }
     return true;
   } catch (e) {
-    console.error("endStream error:", e);
+    console.error("[endStream] error:", e);
     return false;
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // JOIN as VIEWER
-// Always leaves the current channel first so the client is clean.
-// Also subscribes to any tracks already published when we join.
-// ─────────────────────────────────────────────────────────────
+// Creates a fresh audience client every time to avoid any stale state.
+// Uses null UID so the channel stays in numeric mode (same as the host).
+// ────────────────────────────────────────────────────────────────────────────
 export const joinStream = async ({
   channelName,
-  userId,
   onVideoTrack,
   onAudioTrack,
   onStreamerLeft,
   onConnected,
 }) => {
+  // Always start with a brand-new client
+  const ac = getFreshAudienceClient();
   try {
-    // Reset client state before joining
-    try { await client.leave(); } catch (_) {}
+    await ac.setClientRole("audience");
 
-    await client.setClientRole("audience");
-    await client.join(APP_ID, channelName, null, userId || null);
+    // null UID = Agora assigns a random numeric UID — avoids string/number mismatch
+    await ac.join(APP_ID, channelName, null, null);
 
-    // Subscribe to any tracks already live when we arrive
-    for (const remoteUser of client.remoteUsers) {
-      if (remoteUser.hasVideo) {
-        await client.subscribe(remoteUser, "video");
-        onVideoTrack?.(remoteUser.videoTrack);
-      }
-      if (remoteUser.hasAudio) {
-        await client.subscribe(remoteUser, "audio");
-        remoteUser.audioTrack?.play();
-        onAudioTrack?.(remoteUser.audioTrack);
-      }
+    // Subscribe to any tracks the host is already publishing
+    for (const remoteUser of ac.remoteUsers) {
+      try {
+        if (remoteUser.hasVideo) {
+          await ac.subscribe(remoteUser, "video");
+          onVideoTrack?.(remoteUser.videoTrack);
+        }
+        if (remoteUser.hasAudio) {
+          await ac.subscribe(remoteUser, "audio");
+          remoteUser.audioTrack?.play();
+          onAudioTrack?.(remoteUser.audioTrack);
+        }
+      } catch (_) {}
     }
 
+    // Signal that Agora join itself succeeded (even if host hasn't published yet)
     onConnected?.();
 
-    client.on("user-published", async (remoteUser, mediaType) => {
-      await client.subscribe(remoteUser, mediaType);
-      if (mediaType === "video") {
-        onVideoTrack?.(remoteUser.videoTrack);
-      }
-      if (mediaType === "audio") {
-        remoteUser.audioTrack?.play();
-        onAudioTrack?.(remoteUser.audioTrack);
-      }
+    ac.on("user-published", async (remoteUser, mediaType) => {
+      try {
+        await ac.subscribe(remoteUser, mediaType);
+        if (mediaType === "video") {
+          onVideoTrack?.(remoteUser.videoTrack);
+        }
+        if (mediaType === "audio") {
+          remoteUser.audioTrack?.play();
+          onAudioTrack?.(remoteUser.audioTrack);
+        }
+      } catch (_) {}
     });
 
-    client.on("user-unpublished", (remoteUser, mediaType) => {
+    ac.on("user-unpublished", (remoteUser, mediaType) => {
       if (mediaType === "video") remoteUser.videoTrack?.stop();
     });
 
-    client.on("user-left", () => onStreamerLeft?.());
+    ac.on("user-left", () => onStreamerLeft?.());
 
     return true;
   } catch (e) {
-    console.error("joinStream error:", e);
+    console.error("[joinStream] error:", e?.code, e?.message || e);
     return false;
   }
 };
 
+// ────────────────────────────────────────────────────────────────────────────
 export const leaveStream = async () => {
-  try { await client.leave(); return true; } catch { return false; }
+  try {
+    if (audienceClient) await audienceClient.leave().catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const getLiveStreams = async () => {
@@ -192,5 +238,3 @@ export const getStream = async (streamId) => {
     .single();
   return data;
 };
-
-export { client as agoraClient };
