@@ -229,8 +229,9 @@ body.light .liveBadge{background:rgba(255,255,255,.95) !important;}
 body.light ::-webkit-scrollbar-track{background:#F5F5F5 !important;}
 body.light ::-webkit-scrollbar-thumb{background:#CCCCCC !important;}
 body.light .grid{background:#F5F5F5 !important;}
-/* Force Agora-injected video elements to fill their container div */
-[data-uid] video,div[style*="overflow:hidden"] video,div[style*="overflow: hidden"] video{width:100%!important;height:100%!important;object-fit:cover!important;}
+/* Force Agora-injected elements to fill their container */
+.agora_video_player{width:100%!important;height:100%!important;position:absolute!important;inset:0!important;}
+.agora_video_player video{width:100%!important;height:100%!important;object-fit:cover!important;position:absolute!important;inset:0!important;}
 .settingsPanel{background:#14142E;color:#EEEEFF;}
 body.light .settingsPanel{background:#F2F2F2 !important;color:#0F0F0F !important;}
 body.light .settingsPanel *{color:#0F0F0F !important;}
@@ -842,7 +843,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
     const load=async()=>{
       const {data:rows,error}=await supabase
         .from("streams")
-        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually,is_live")
+        .select("*")
         .eq("is_live",true)
         .order("viewer_count",{ascending:false})
         .limit(30);
@@ -953,7 +954,7 @@ const SearchPage=({onStream,initialSearch=""})=>{
     setSearching(true);
     const timer=setTimeout(async()=>{
       const {data:rows}=await supabase.from("streams")
-        .select("id,title,category,viewer_count,is_live,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+        .select("*")
         .or(`title.ilike.%${q}%,category.ilike.%${q}%,streamer_name.ilike.%${q}%`)
         .order("is_live",{ascending:false}).order("viewer_count",{ascending:false}).limit(20);
       const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
@@ -1049,34 +1050,31 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     }
   },[studioTab,isLive,previewStream]);
 
-  // Attach live camera — use Agora's native track.play(div) which reliably renders
+  // Attach live camera preview — localVideoTrack.current is the camera track (after fix)
   useEffect(()=>{
     if(!isLive||studioTab!=="stream")return;
     let tid;let attempts=0;
     const attach=()=>{
       const div=liveVideoRef.current;
-      if(!div){if(attempts++<30){tid=window.setTimeout(attach,150);}return;}
+      if(!div){if(attempts++<40){tid=window.setTimeout(attach,150);}return;}
       const track=localVideoTrack.current;
-      if(!track){if(attempts++<20){tid=window.setTimeout(attach,300);}return;}
+      // localVideoTrack.current = ICameraVideoTrack (camera, not mic)
+      if(!track){if(attempts++<40){tid=window.setTimeout(attach,250);}return;}
       try{
-        // Agora's track.play(HTMLElement) is the reliable API for local tracks.
-        // It creates its own <video> inside the container div.
-        if(track.play){
-          // Clear any previous render first
-          div.innerHTML="";
-          div.style.position="relative";
-          track.play(div);
-        }
-        // Also wire srcObject on the hidden capture <video> for thumbnail snapshots
+        div.innerHTML=""; // clear any previous Agora render
+        track.play(div);  // Agora renders a <video> inside the div
+      }catch(e){
+        console.warn("[LivePreview] track.play failed, trying srcObject:", e);
+        // Fallback: wire via MediaStream srcObject on captureRef
         const cap=captureRef.current;
         if(cap){
           const raw=track.getMediaStreamTrack?.();
           if(raw){cap.srcObject=new MediaStream([raw]);cap.muted=true;cap.play().catch(()=>{});}
         }
-      }catch(e){console.warn("Live preview failed",e);}
+      }
     };
-    tid=window.setTimeout(attach,300);
-    return()=>{clearTimeout(tid);};
+    tid=window.setTimeout(attach,400);
+    return()=>clearTimeout(tid);
   },[isLive,studioTab]); // eslint-disable-line
 
   // Frame capture disabled — live_thumbnail_url column not in DB schema
@@ -1122,7 +1120,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // Create Supabase stream record FIRST — guarantees it appears in HomeFeed
     const channelName=makeChannel(user.id);
     // Read streamer's saved subscription prices so SubModal shows correct amounts
-    const {data:profilePrices}=await supabase.from("profiles").select("sub_price_weekly,sub_price_monthly,sub_price_annually").eq("id",user.id).single();
+    const {data:profilePrices}=await supabase.from("profiles").select("*").eq("id",user.id).single().catch(()=>({data:null}));
     const streamRow={
       streamer_id:user.id,
       streamer_name:user.email?.split("@")[0]||"Streamer",
@@ -1165,6 +1163,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       setStarting(false);return;
     }
     if(result){
+      // stream.js now correctly returns localVideoTrack=camera, localAudioTrack=mic
       localVideoTrack.current=result.localVideoTrack||null;
       localAudioTrack.current=result.localAudioTrack||null;
       setIsLive(true);setStreamId(supabaseStreamId);setStudioTab("stream");
@@ -1193,21 +1192,18 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
 
   const handleToggleMic=async()=>{
     const next=!micOn;setMicOn(next);
-    if(localAudioTrack.current?.setEnabled)await localAudioTrack.current.setEnabled(next);
+    const aTrack=localAudioTrack.current;
+    if(aTrack?.setEnabled)await aTrack.setEnabled(next);
     else await toggleMic(next);
   };
   const handleToggleCam=async()=>{
     const next=!camOn;setCamOn(next);
-    if(localVideoTrack.current?.setEnabled)await localVideoTrack.current.setEnabled(next);
+    const vTrack=localVideoTrack.current;
+    if(vTrack?.setEnabled)await vTrack.setEnabled(next);
     else await toggleCamera(next);
-    if(next&&liveVideoRef.current&&localVideoTrack.current){
-      try{
-        const div=liveVideoRef.current;
-        const track=localVideoTrack.current;
-        if(track.play){div.innerHTML="";track.play(div);}
-        const cap=captureRef.current;
-        if(cap){const raw=track.getMediaStreamTrack?.();if(raw){cap.srcObject=new MediaStream([raw]);cap.muted=true;cap.play().catch(()=>{});}}
-      }catch(_e){}
+    // Re-render camera when turning back on
+    if(next&&liveVideoRef.current&&vTrack){
+      try{const div=liveVideoRef.current;div.innerHTML="";vTrack.play(div);}catch(_){}
     }
   };
   const sendStudioMsg=async()=>{
@@ -2013,7 +2009,7 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
   useEffect(()=>{
     if(!streamerId)return;
     // Load real streams for this streamer
-    supabase.from("streams").select("id,title,category,viewer_count,is_live,channel_name,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+    supabase.from("streams").select("*")
       .eq("streamer_id",streamerId).order("started_at",{ascending:false}).limit(10)
       .then(({data})=>{if(data)setStreamerStreams(data.map(s=>mapStreamRow(s)));});
     // Follower count
@@ -2157,7 +2153,7 @@ export default function App(){
       setStreamLinkLoading(false);
     };
     supabase.from("streams")
-      .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually")
+      .select("*")
       .eq("id",streamId).single()
       .then(({data,error})=>{
         if(data&&!error){
