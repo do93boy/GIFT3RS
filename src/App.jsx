@@ -63,7 +63,7 @@ const mapStreamRow=(s,profileMap={})=>{
     title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0,
     cat:s.category||"General", bg:"#0D0A20", col, verified:false, live:s.is_live!==false,
     channel_name:s.channel_name||"", thumbnail:s.thumbnail_url||"",
-    live_thumbnail_url:s.live_thumbnail_url||"", streamer_id:s.streamer_id||"",
+    streamer_id:s.streamer_id||"",
     sp:{w:s.sub_price_weekly||1.99,m:s.sub_price_monthly||5.99,a:s.sub_price_annually||49.99},
     avatar_url:profile.avatar_url||"", isReal:true,
   };
@@ -229,6 +229,8 @@ body.light .liveBadge{background:rgba(255,255,255,.95) !important;}
 body.light ::-webkit-scrollbar-track{background:#F5F5F5 !important;}
 body.light ::-webkit-scrollbar-thumb{background:#CCCCCC !important;}
 body.light .grid{background:#F5F5F5 !important;}
+/* Force Agora-injected video elements to fill their container div */
+[data-uid] video,div[style*="overflow:hidden"] video,div[style*="overflow: hidden"] video{width:100%!important;height:100%!important;object-fit:cover!important;}
 .settingsPanel{background:#14142E;color:#EEEEFF;}
 body.light .settingsPanel{background:#F2F2F2 !important;color:#0F0F0F !important;}
 body.light .settingsPanel *{color:#0F0F0F !important;}
@@ -601,7 +603,10 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
         <div style={{display:"flex",flex:1,overflow:"hidden"}}>
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <div style={{position:"relative",background:`linear-gradient(160deg,${stream.bg},#000)`,aspectRatio:"16/9",maxHeight:"60vh",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              {stream.channel_name&&<video ref={videoContainerRef} autoPlay playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",zIndex:1}}/>}
+              {/* Agora renders its own <video> inside this div — passing a <video> element to
+                  track.play() causes Agora to nest a div inside it which browsers silently
+                  drop, leaving a black screen.  A <div> container is the correct target. */}
+              {stream.channel_name&&<div ref={videoContainerRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",overflow:"hidden",zIndex:1,background:"#000"}}/>}
               {!stream.channel_name&&<>
                 <div style={{position:"absolute",inset:0,background:`radial-gradient(circle at 50%,${stream.col}15,transparent 60%)`}}/>
                 <div style={{zIndex:2,display:"flex",flexDirection:"column",alignItems:"center"}}>
@@ -727,14 +732,13 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
     hoverTimer.current=setTimeout(()=>{
       setHovered(true);
       frameTimer.current=setInterval(()=>setPreviewFrame(f=>(f+1)%4),800);
-      // For real streams: fetch the latest live frame or thumbnail
+      // For real streams without a thumbnail: fetch thumbnail on hover
       if(s.isReal&&!thumbSrc){
         supabase.from("streams")
-          .select("live_thumbnail_url,thumbnail_url")
+          .select("thumbnail_url")
           .eq("id",s.id).single()
           .then(({data})=>{
             if(data?.thumbnail_url) setHoverThumb(data.thumbnail_url);
-            else if(data?.live_thumbnail_url) setHoverThumb(data.live_thumbnail_url);
           });
       }
     },500);
@@ -746,7 +750,7 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
   };
 
   // Best available preview image for this card
-  const previewImg=thumbSrc||hoverThumb||s.live_thumbnail_url||"";
+  const previewImg=thumbSrc||hoverThumb||"";
 
   const previewColors=[
     `radial-gradient(circle at 30% 40%,${s.col}55,${s.bg} 60%)`,
@@ -838,7 +842,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
     const load=async()=>{
       const {data:rows,error}=await supabase
         .from("streams")
-        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually,is_live")
+        .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually,is_live")
         .eq("is_live",true)
         .order("viewer_count",{ascending:false})
         .limit(30);
@@ -949,7 +953,7 @@ const SearchPage=({onStream,initialSearch=""})=>{
     setSearching(true);
     const timer=setTimeout(async()=>{
       const {data:rows}=await supabase.from("streams")
-        .select("id,title,category,viewer_count,is_live,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+        .select("id,title,category,viewer_count,is_live,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
         .or(`title.ilike.%${q}%,category.ilike.%${q}%,streamer_name.ilike.%${q}%`)
         .order("is_live",{ascending:false}).order("viewer_count",{ascending:false}).limit(20);
       const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
@@ -1075,31 +1079,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     return()=>{clearTimeout(tid);};
   },[isLive,studioTab]); // eslint-disable-line
 
-  // Periodic frame capture → Supabase (hover preview for viewers)
-  useEffect(()=>{
-    if(!isLive||!streamId)return;
-    const capture=async()=>{
-      const el=captureRef.current;
-      if(!el||!el.videoWidth)return;
-      try{
-        const W=Math.min(el.videoWidth,1280);const H=Math.min(el.videoHeight,720);
-        const canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;
-        canvas.getContext("2d").drawImage(el,0,0,W,H);
-        canvas.toBlob(async(blob)=>{
-          if(!blob)return;
-          const path="previews/"+streamId+".jpg";
-          const {error}=await supabase.storage.from("gift3rs-media").upload(path,blob,{upsert:true,contentType:"image/jpeg"});
-          if(error)return;
-          const {data:u}=supabase.storage.from("gift3rs-media").getPublicUrl(path);
-          const url=u.publicUrl+"?v="+Date.now();
-          await supabase.from("streams").update({live_thumbnail_url:url}).eq("id",streamId);
-        },"image/jpeg",0.8);
-      }catch(e){console.warn("Frame capture failed",e);}
-    };
-    const t1=window.setTimeout(capture,4000);
-    const t2=window.setInterval(capture,30000);
-    return()=>{window.clearTimeout(t1);window.clearInterval(t2);};
-  },[isLive,streamId]);
+  // Frame capture disabled — live_thumbnail_url column not in DB schema
 
   // Real subscriptions (chat + gifts + viewer count)
   useEffect(()=>{
@@ -1205,7 +1185,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     if(liveVideoRef.current)liveVideoRef.current.innerHTML="";
     if(captureRef.current){captureRef.current.srcObject=null;}
     localVideoTrack.current=null;localAudioTrack.current=null;
-    if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0,live_thumbnail_url:null,ended_at:new Date().toISOString()}).eq("id",streamId).catch(()=>{});}
+    if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0,ended_at:new Date().toISOString()}).eq("id",streamId).catch(()=>{});}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
     setThumbPreview("");setThumbFile(null);
     navigator.mediaDevices?.getUserMedia({video:true,audio:true}).then(s=>{setPreviewStream(s);if(videoRef.current)videoRef.current.srcObject=s;});
@@ -2033,7 +2013,7 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
   useEffect(()=>{
     if(!streamerId)return;
     // Load real streams for this streamer
-    supabase.from("streams").select("id,title,category,viewer_count,is_live,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
+    supabase.from("streams").select("id,title,category,viewer_count,is_live,channel_name,thumbnail_url,streamer_id,streamer_name,sub_price_weekly,sub_price_monthly,sub_price_annually")
       .eq("streamer_id",streamerId).order("started_at",{ascending:false}).limit(10)
       .then(({data})=>{if(data)setStreamerStreams(data.map(s=>mapStreamRow(s)));});
     // Follower count
@@ -2177,7 +2157,7 @@ export default function App(){
       setStreamLinkLoading(false);
     };
     supabase.from("streams")
-      .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,live_thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually")
+      .select("id,title,category,viewer_count,gift_total,channel_name,thumbnail_url,streamer_id,streamer_name,is_live,sub_price_weekly,sub_price_monthly,sub_price_annually")
       .eq("id",streamId).single()
       .then(({data,error})=>{
         if(data&&!error){
