@@ -400,23 +400,15 @@ const GiftModal=({stream,fmt,onClose,onSent,user,currency="USD"})=>{
     try{
       const paystackCodes=["KES"];
       const paymentCurrency=paystackCodes.includes(currency)?currency:"USD";
+      // receiverId MUST be the streamer's user id so earnings/top-gifters match.
+      // sendGift() performs the single DB insert (with platform/streamer cuts).
       await sendGift({
-        senderId:user.id,senderEmail:user.email,receiverId:stream.id,streamId:stream.id,
+        senderId:user.id,senderEmail:user.email,
+        receiverId:stream.streamer_id||stream.id,
+        streamId:typeof stream.id==="string"?stream.id:null,
         amountUsd:amount,emoji:sel?.emoji||"gift",message:msg,currency:paymentCurrency,
         onSuccess:(result)=>{
             setStage("sent");
-            // Always save to Supabase so streamer's real-time dashboard subscription fires
-            if(user&&stream.id&&typeof stream.id==="string"){
-              supabase.from("gifts").insert({
-                stream_id:stream.id,
-                sender_id:user.id,
-                receiver_id:stream.streamer_id||stream.id,
-                amount_usd:amount,
-                emoji:sel?.emoji||"gift",
-                message:msg||"",
-                sender_username:user.email?.split("@")[0]||"Viewer",
-              }).then(null,null);
-            }
             onSent&&onSent(result.emoji||"gift",amount,msg,sel?.name==="Amount"?fmt(amount):null);
           },
         onCancel:()=>setStage("pick"),
@@ -480,8 +472,12 @@ const SubModal=({stream,fmt,onClose,onSubscribed,user,currency="USD"})=>{
     if(!user){alert("Please sign in to subscribe.");return;}
     setStage("processing");
     try{
+      // streamerId MUST be the streamer's user id (not the stream record id) so
+      // the subscription matches the "already subscribed?" check, the streamer's
+      // subscriber list, and earnings.
+      const streamerUserId=stream.streamer_id||stream.id;
       await subscribeToStreamer({
-        subscriberId:user.id,subscriberEmail:user.email,streamerId:stream.id,plan,priceUsd:chosen.usd,
+        subscriberId:user.id,subscriberEmail:user.email,streamerId:streamerUserId,plan,priceUsd:chosen.usd,
         currency:["KES"].includes(currency)?currency:"USD",
         onSuccess:()=>{setStage("done");onSubscribed&&onSubscribed();},
         onCancel:()=>setStage("pick"),
@@ -576,7 +572,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
 
   useEffect(()=>{
     if(!user||!stream.id)return;
-    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.streamer_id||stream.id).eq("status","active").single().then(({data})=>{if(data)setSubscribed(true);});
+    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.streamer_id||stream.id).eq("status","active").limit(1).then(({data})=>{setSubscribed(!!(data&&data.length));});
   },[user,stream.id]);
 
   // Fullscreen change listener
@@ -2557,10 +2553,10 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
 
   useEffect(()=>{
     if(!user||!streamerId)return;
-    supabase.from("follows").select("id").eq("follower_id",user.id).eq("following_id",streamerId).single()
-      .then(({data})=>{if(data)setFollowing(true);});
-    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",streamerId).eq("status","active").single()
-      .then(({data})=>{if(data)setSubscribed(true);});
+    supabase.from("follows").select("id").eq("follower_id",user.id).eq("following_id",streamerId).limit(1)
+      .then(({data})=>{setFollowing(!!(data&&data.length));});
+    supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",streamerId).eq("status","active").limit(1)
+      .then(({data})=>{setSubscribed(!!(data&&data.length));});
   },[user,streamerId]);
 
   const toggleFollow=async()=>{
