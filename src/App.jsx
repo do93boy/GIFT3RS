@@ -2365,8 +2365,7 @@ export default function App(){
   return(
     <><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}
     <div style={{background:darkMode?"#06060F":"#F7F8FF",color:darkMode?"#EEEEFF":"#0F0F2E",minHeight:"100vh"}}>
-    {PAYMENT_TEST_MODE&&<div className="testBanner">⚠ TEST MODE — All payments are simulated. No real money is charged.</div>}
-      <header className={`topBar${PAYMENT_TEST_MODE?" testBannerOffset":""}${topBarHidden?" topBarHide":""}`}>
+      <header className={`topBar${topBarHidden?" topBarHide":""}`}>
         <div style={{position:"relative",display:"none"}} className="desktopMenu" data-dropdown>
           <button data-dropdown onClick={()=>setShowMenu(v=>!v)} style={{background:showMenu?(darkMode?`${C.cyan}18`:"#E8F4FF"):"transparent",border:`1.5px solid ${showMenu?C.cyan:"transparent"}`,borderRadius:10,width:38,height:38,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,cursor:"pointer",flexShrink:0,transition:"all .2s",padding:0}}>
             <div style={{width:18,height:2,borderRadius:2,background:showMenu?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E"),transition:"all .3s",transform:showMenu?"rotate(45deg) translateY(7px)":"none"}}/>
@@ -2411,7 +2410,7 @@ export default function App(){
           {user?(<div onClick={()=>setTab("prof")} style={{cursor:"pointer"}}>{topAvatar?<img src={topAvatar} style={{width:34,height:34,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.cyan}`}}/>:<Av ch={(user.email||"U")[0].toUpperCase()} sz={34} g={`linear-gradient(135deg,${C.cyan},${C.purple})`}/>}</div>):(<button className="btn btnC" style={{padding:"8px 16px",fontSize:13,whiteSpace:"nowrap"}} onClick={()=>setShowAuth(true)}>Sign In</button>)}
         </div>
       </header>
-      <div style={{paddingTop:PAYMENT_TEST_MODE?88:60,paddingBottom:88}}>
+      <div style={{paddingTop:60,paddingBottom:88}}>
         {tab==="home"&&<HomeFeed fmt={fmt} onStream={s=>setViewing(s)} onViewProfile={s=>setViewingProfile(s)}/>}
         {tab==="search"&&<SearchPage onStream={s=>setViewing(s)} initialSearch={search}/>}
         {tab==="live"&&<GoLivePage fmt={fmt} isStreamer={isStreamer} onBecomeStreamer={()=>setShowBecome(true)} user={user} darkMode={darkMode}/>}
