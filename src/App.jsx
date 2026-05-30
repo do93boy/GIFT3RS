@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 import Auth from "./Auth.jsx";
-import { sendGift, subscribeToStreamer, payStreamerFee } from "./lib/payments";
+import { sendGift, subscribeToStreamer, payStreamerFee, PAYMENT_TEST_MODE } from "./lib/payments";
 import {
   startStream, endStream, toggleMic, toggleCamera,
   makeChannel, joinStream, leaveStream, playLocalVideo,
@@ -164,6 +164,7 @@ body{background:#06060F;color:#EEEEFF;font-family:'Plus Jakarta Sans',sans-serif
 ::-webkit-scrollbar-thumb{background:#28285A;border-radius:6px;}
 .sx{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;}
 .sx::-webkit-scrollbar{display:none;}
+.testBannerOffset{top:28px!important;}
 .topBar{position:fixed;top:0;left:0;right:0;height:60px;background:rgba(6,6,15,.95);backdrop-filter:blur(20px);border-bottom:1px solid #1E1E3A;z-index:300;display:flex;align-items:center;padding:0 16px;gap:12px;}
 .mobileNav{display:flex;position:fixed;bottom:0;left:0;right:0;background:rgba(6,6,15,.96);backdrop-filter:blur(24px);border-top:1px solid #1E1E3A;z-index:300;padding:0 0 4px;}
 .mnBtn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px 6px;cursor:pointer;border:none;background:none;color:#6868A8;transition:color .2s,transform .15s;}
@@ -196,6 +197,16 @@ body{background:#06060F;color:#EEEEFF;font-family:'Plus Jakarta Sans',sans-serif
 .searchBar .ico{position:absolute;left:13px;pointer-events:none;}
 .mOverlay{position:fixed;inset:0;background:rgba(4,4,18,.85);backdrop-filter:blur(10px);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;}
 .mBox{background:#0B0B1C;border-radius:20px;width:100%;max-width:480px;border:1px solid #28285A;padding:24px;max-height:90vh;overflow-y:auto;}
+/* ── Improved card + interaction animations ── */
+.sCard{transition:transform .22s cubic-bezier(.17,.67,.3,1.2),box-shadow .22s,border-color .22s;}
+.sCard:hover{transform:translateY(-8px) scale(1.02);box-shadow:0 20px 48px rgba(0,0,0,.6),0 0 0 1px rgba(0,229,255,.12);}
+.sCard:active{transform:scale(.97);}
+.btn:hover{transform:translateY(-2px);filter:brightness(1.08);}
+.btn:active{transform:scale(.94) translateY(0);filter:brightness(.95);}
+.card:hover{border-color:#28285A;box-shadow:0 4px 20px rgba(0,0,0,.25);}
+@keyframes testBanner{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+/* ── Test mode banner ── */
+.testBanner{background:linear-gradient(90deg,#FF8C42,#FFD166,#FF8C42);background-size:300% 100%;animation:testBanner 3s ease infinite;color:#06060F;font-weight:900;font-size:11px;text-align:center;padding:5px;letter-spacing:.5px;font-family:'Exo 2',sans-serif;}
 /* LIGHT MODE */
 body.light{background:#F5F5F5 !important;color:#0F0F0F !important;}
 body.light .topBar{background:rgba(255,255,255,.98) !important;border-bottom:1px solid #E0E0E0 !important;}
@@ -366,7 +377,7 @@ const GiftModal=({stream,fmt,onClose,onSent,user,currency="USD"})=>{
                 emoji:sel?.emoji||"gift",
                 message:msg||"",
                 sender_username:user.email?.split("@")[0]||"Viewer",
-              }).catch(e=>console.warn("Gift record failed",e));
+              }).then(null,null);
             }
             onSent&&onSent(result.emoji||"gift",amount,msg,sel?.name==="Amount"?fmt(amount):null);
           },
@@ -498,6 +509,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [liveViewers,setLiveViewers]=useState(stream.viewers||0);
   const chatRef=useRef();
   const videoContainerRef=useRef();
+  const bcastRef=useRef(null); // Supabase broadcast channel — works without Realtime table config
 
   useEffect(()=>{
     if(!user||!stream.id)return;
@@ -542,16 +554,36 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   },[stream.channel_name]); // eslint-disable-line
 
 
+  // ── Broadcast channel: works without Supabase Realtime table config ──────
+  // All viewers + streamer use the same channel; messages arrive instantly.
   useEffect(()=>{
     if(!stream.id||typeof stream.id!=="string")return;
-    const channel=supabase.channel(`chat:${stream.id}`)
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:`stream_id=eq.${stream.id}`},
-        payload=>{setChat(c=>[...c.slice(-25),{u:payload.new.username||"Viewer",t:payload.new.message,c:C.cyan,gift:payload.new.is_gift,id:payload.new.id}]);})
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"streams",filter:`id=eq.${stream.id}`},
-        payload=>{if(payload.new?.viewer_count!=null)setLiveViewers(payload.new.viewer_count);})
+    const ch=supabase.channel(`gift3rs_stream_${stream.id}`)
+      .on("broadcast",{event:"chat"},({payload})=>{
+        setChat(c=>[...c.slice(-49),payload]);
+      })
+      .on("broadcast",{event:"gift"},({payload})=>{
+        setChat(c=>[...c.slice(-49),payload]);
+        playNotifSound("gift");
+      })
+      .on("broadcast",{event:"sub"},({payload})=>{
+        setChat(c=>[...c.slice(-49),payload]);
+        playNotifSound("sub");
+      })
       .subscribe();
-    return()=>supabase.removeChannel(channel);
-  },[stream.id]);
+    bcastRef.current=ch;
+    // Also keep postgres_changes as secondary fallback (if Realtime is enabled in Supabase)
+    const pgCh=supabase.channel(`pg_chat_${stream.id}`)
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:`stream_id=eq.${stream.id}`},
+        payload=>{setChat(c=>{const exists=c.find(m=>m.pg_id===payload.new.id);if(exists)return c;return[...c.slice(-49),{u:payload.new.username||"Viewer",t:payload.new.message,c:C.cyan,id:Date.now(),pg_id:payload.new.id}];})})
+      .subscribe();
+    // Poll viewer count every 10s as fallback
+    const vcPoll=setInterval(async()=>{
+      const {data}=await supabase.from("streams").select("viewer_count").eq("id",stream.id).single();
+      if(data?.viewer_count!=null)setLiveViewers(data.viewer_count);
+    },10000);
+    return()=>{supabase.removeChannel(ch);supabase.removeChannel(pgCh);clearInterval(vcPoll);bcastRef.current=null;};
+  },[stream.id]); // eslint-disable-line
 
   useEffect(()=>{
     if(chatRef.current){const el=chatRef.current;const isNearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<120;if(isNearBottom)el.scrollTop=el.scrollHeight;}
@@ -567,17 +599,18 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const sendChat=async()=>{
     if(!user){onAuthRequired&&onAuthRequired();return;}
     if(!msg.trim())return;
-    const username=user?.email?.split("@")[0]||"Viewer";
-    setChat(c=>[...c,{u:username,t:msg,c:C.amber,gift:null,id:Date.now()}]);
+    const uname=user?.email?.split("@")[0]||"Viewer";
+    const payload={u:uname,t:msg,c:C.amber,id:Date.now(),type:"chat"};
+    setChat(c=>[...c,payload]);
     setMsg("");
-    // Save to Supabase for all real streams (UUIDs or any string ID)
+    // Broadcast so ALL viewers + streamer see it instantly (no Realtime table config needed)
+    bcastRef.current?.send({type:"broadcast",event:"chat",payload});
+    // Also persist to DB for history
     if(stream.id&&typeof stream.id==="string"){
       await supabase.from("chat_messages").insert({
-        stream_id:stream.id,
-        user_id:user.id,
-        username:user.email?.split("@")[0]||"Viewer",
-        message:msg,
-      }).catch(e=>console.warn("Chat save failed",e));
+        stream_id:stream.id, user_id:user.id,
+        username:uname, message:msg,
+      });
     }
   };
 
@@ -585,13 +618,31 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     playNotifSound("gift");launchFloat(emoji,amount);setGiftTotal(g=>g+amount);
     const uname=user?.email?.split("@")[0]||"Viewer";
     const giftName={star:"Star",zap:"Fire",diamond:"Diamond",rocket:"Rocket",crown:"Crown",coins:"Bag",trophy:"Trophy"};
-    setChat(c=>[...c,{u:uname,t:message||(emoji==="edit"?"sent a custom gift":"sent a "+giftName[emoji]),c:C.gold,gift:emoji==="edit"?"coins":emoji,customAmt:fmtAmt||null,id:Date.now()+1,type:"gift"}]);
+    const payload={u:uname,t:message||(emoji==="edit"?"sent a custom gift":"sent a "+giftName[emoji]),c:C.gold,gift:emoji==="edit"?"coins":emoji,customAmt:fmtAmt||null,id:Date.now()+1,type:"gift"};
+    setChat(c=>[...c,payload]);
+    // Broadcast gift to all viewers + streamer dashboard
+    bcastRef.current?.send({type:"broadcast",event:"gift",payload});
+    // Notify streamer personally via their user channel
+    if(stream.streamer_id){
+      supabase.channel(`gift3rs_user_${stream.streamer_id}`)
+        .send({type:"broadcast",event:"gift_notif",payload:{from:user?.email?.split("@")[0]||"Viewer",emoji,amount}})
+        .catch?.(()=>{});
+    }
   };
 
   const onSubscribed=()=>{
     playNotifSound("sub");setSubscribed(true);
     const uname=user?.email?.split("@")[0]||"Viewer";
-    setChat(c=>[...c,{u:uname,t:"just subscribed! Welcome to the community 🎉",c:C.purple,gift:"star",id:Date.now(),type:"sub"}]);
+    const payload={u:uname,t:"just subscribed! Welcome to the community 🎉",c:C.purple,gift:"star",id:Date.now(),type:"sub"};
+    setChat(c=>[...c,payload]);
+    // Broadcast sub to all viewers + streamer dashboard
+    bcastRef.current?.send({type:"broadcast",event:"sub",payload});
+    // Notify streamer personally
+    if(stream.streamer_id){
+      supabase.channel(`gift3rs_user_${stream.streamer_id}`)
+        .send({type:"broadcast",event:"sub_notif",payload:{from:uname}})
+        .catch?.(()=>{});
+    }
   };
 
   return(
@@ -857,7 +908,7 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
       const ids=[...new Set((rows||[]).map(s=>s.streamer_id).filter(Boolean))];
       let profileMap={};
       if(ids.length>0){
-        const {data:profiles}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",ids);
+        const {data:profiles}=await supabase.from("profiles").select("*").in("id",ids);
         if(profiles) profiles.forEach(p=>{profileMap[p.id]=p;});
       }
       if(cancelled)return;
@@ -930,7 +981,13 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
           </>}
         </div>
       )}
-      {feedError&&<div style={{margin:"0 0 4px",padding:"10px 14px",background:"#FF2D2D12",border:"1px solid #FF2D2D30",borderRadius:10,fontSize:12,color:"#FF8080",display:"flex",alignItems:"center",gap:8}}><Ico n="info" s={14} c="#FF8080"/>Couldn't load streams: {feedError} — check Supabase RLS (streams table needs a SELECT policy for anon/authenticated).</div>}
+      {feedError&&<div style={{margin:"0 0 8px",padding:"12px 14px",background:"#FF2D2D12",border:"1px solid #FF2D2D30",borderRadius:10,fontSize:12,color:"#FF8080"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><Ico n="info" s={14} c="#FF8080"/><strong>Stream feed error — Supabase RLS fix needed</strong></div>
+        <div style={{marginBottom:4}}>Error: {feedError}</div>
+        <div style={{color:"#FF8080",opacity:.8}}>In Supabase → Authentication → Policies → <strong>streams</strong> table → add a SELECT policy:<br/>
+          <code style={{background:"rgba(255,45,45,.15)",padding:"1px 6px",borderRadius:4}}>Target roles: anon, authenticated | USING: true</code>
+        </div>
+      </div>}
       <div className="sx" style={{padding:"12px 0 4px",display:"flex",gap:7}}>
         {CATS.map(c=>(<button key={c} onClick={()=>setCat(c)} style={{flexShrink:0,padding:"7px 18px",borderRadius:22,border:`1.5px solid ${cat===c?C.cyan:C.border}`,background:cat===c?`${C.cyan}22`:C.card2,color:cat===c?C.cyan:C.muted,fontFamily:"Plus Jakarta Sans",fontWeight:800,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap",boxShadow:cat===c?`0 0 12px ${C.cyan}33`:"none",transform:cat===c?"scale(1.05)":"scale(1)"}} onMouseEnter={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.cyan+"66";e.currentTarget.style.color=C.text;}}} onMouseLeave={e=>{if(c!==cat){e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}}>{c}</button>))}
       </div>
@@ -1032,6 +1089,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const captureRef=useRef();     // hidden <video> — used only for thumbnail frame capture
   const timerRef=useRef();const chatRef=useRef();
   const localVideoTrack=useRef(null);const localAudioTrack=useRef(null);
+  const studioBcastRef=useRef(null); // broadcast channel for studio real-time chat
 
   // Camera preview — retries up to 3 times in case the camera is briefly
   // busy after an Agora track was just released
@@ -1098,26 +1156,51 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
 
   // Frame capture disabled — live_thumbnail_url column not in DB schema
 
-  // Real subscriptions (chat + gifts + viewer count)
+  // Real-time: broadcast channel (primary) + postgres_changes fallback + viewer count poll
   useEffect(()=>{
     if(!isLive||!streamId)return;
-    const chatCh=supabase.channel("studio_chat_"+streamId)
+
+    // PRIMARY: Broadcast — works without Supabase Realtime table configuration
+    const bcastCh=supabase.channel(`gift3rs_stream_${streamId}`,{config:{broadcast:{self:false}}})
+      .on("broadcast",{event:"chat"},({payload})=>{
+        setStudioChat(c=>[...c.slice(-99),{...payload,type:payload.type||"viewer",c:payload.c||C.purple}]);
+      })
+      .on("broadcast",{event:"gift"},({payload})=>{
+        setGiftTotal(g=>g+(payload.amount||0));
+        setStudioChat(c=>[...c.slice(-99),{...payload,type:"gift"}]);
+        if(giftNotifs)playNotifSound("gift");
+      })
+      .on("broadcast",{event:"sub"},({payload})=>{
+        setStudioChat(c=>[...c.slice(-99),{...payload,type:"sub"}]);
+        playNotifSound("sub");
+      })
+      .subscribe();
+    studioBcastRef.current=bcastCh;
+
+    // FALLBACK: postgres_changes (requires Realtime enabled on tables in Supabase)
+    const pgChatCh=supabase.channel("pg_studio_chat_"+streamId)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:"stream_id=eq."+streamId},p=>{
         const d=p.new;
-        setStudioChat(c=>[...c.slice(-99),{u:d.username||"Viewer",t:d.message,id:d.id,type:"viewer",c:C.purple}]);
+        setStudioChat(c=>{const exists=c.find(m=>m.pg_id===d.id);if(exists)return c;return[...c.slice(-99),{u:d.username||"Viewer",t:d.message,id:Date.now(),pg_id:d.id,type:"viewer",c:C.purple}];});
       }).subscribe();
-    const giftCh=supabase.channel("studio_gifts_"+streamId)
+    const pgGiftCh=supabase.channel("pg_studio_gifts_"+streamId)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:"stream_id=eq."+streamId},p=>{
         const d=p.new;
         setGiftTotal(g=>g+(d.amount_usd||0));
-        setStudioChat(c=>[...c.slice(-99),{u:d.sender_username||"Someone",t:"sent a "+(d.emoji||"gift"),id:d.id,type:"gift",emoji:d.emoji,c:C.gold}]);
+        setStudioChat(c=>{const exists=c.find(m=>m.pg_id===d.id);if(exists)return c;return[...c.slice(-99),{u:d.sender_username||"Someone",t:"sent a "+(d.emoji||"gift"),id:Date.now(),pg_id:d.id,type:"gift",emoji:d.emoji,c:C.gold}];});
         if(giftNotifs)playNotifSound("gift");
       }).subscribe();
+
+    // Viewer count poll every 8s
     const vcInt=window.setInterval(async()=>{
       const {data}=await supabase.from("streams").select("viewer_count").eq("id",streamId).single();
       if(data?.viewer_count!=null)setViewers(data.viewer_count);
-    },10000);
-    return()=>{supabase.removeChannel(chatCh);supabase.removeChannel(giftCh);window.clearInterval(vcInt);};
+    },8000);
+
+    return()=>{
+      supabase.removeChannel(bcastCh);supabase.removeChannel(pgChatCh);supabase.removeChannel(pgGiftCh);
+      window.clearInterval(vcInt);studioBcastRef.current=null;
+    };
   },[isLive,streamId,giftNotifs]); // eslint-disable-line
 
   const dur=String(Math.floor(secs/3600)).padStart(2,"0")+":"+String(Math.floor((secs%3600)/60)).padStart(2,"0")+":"+String(secs%60).padStart(2,"0");
@@ -1159,7 +1242,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // ── Step 3: Create DB record with minimal required columns first ───────
     const channelName=makeChannel(user.id);
     // Minimal row — only columns guaranteed to exist in a basic streams table
-    const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString()};
+    const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString(),streamer_name:user.email?.split("@")[0]||"Streamer"};
     // Extended row — add optional columns; Supabase ignores unknown ones via upsert
     const {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single();
     const extRow={
@@ -1249,8 +1332,12 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   };
   const sendStudioMsg=async()=>{
     if(!chatMsg.trim())return;const msg=chatMsg.trim();setChatMsg("");
-    setStudioChat(c=>[...c,{u:"You (Streamer)",t:msg,id:Date.now(),type:"streamer"}]);
-    if(streamId&&user){await supabase.from("chat_messages").insert({stream_id:streamId,user_id:user.id,username:user.email?.split("@")[0]||"Streamer",message:msg});}
+    const uname=user?.email?.split("@")[0]||"Streamer";
+    const payload={u:uname,t:msg,id:Date.now(),type:"streamer",c:C.amber};
+    setStudioChat(c=>[...c,payload]);
+    // Broadcast so all viewers see the streamer's message
+    studioBcastRef.current?.send({type:"broadcast",event:"chat",payload});
+    if(streamId&&user){await supabase.from("chat_messages").insert({stream_id:streamId,user_id:user.id,username:uname,message:msg});}
   };
   const addTag=()=>{if(tagInput.trim()&&tags.length<5&&!tags.includes(tagInput.trim())){setTags(t=>[...t,tagInput.trim()]);setTagInput("");}};
   const copyLink=()=>{navigator.clipboard.writeText(shareLink);setCopied(true);window.setTimeout(()=>setCopied(false),2000);};
@@ -2166,7 +2253,32 @@ export default function App(){
   const fetchAvatar=useCallback(async(u)=>{if(!u)return;const {data}=await supabase.from("profiles").select("avatar_url,is_streamer,fee_paid").eq("id",u.id).single();if(data?.avatar_url)setTopAvatar(data.avatar_url);if(data?.is_streamer||data?.fee_paid){setIsStreamer(true);localStorage.setItem("gift3rs_is_streamer","true");}},[]);
   useEffect(()=>{document.body.classList.toggle("light",!darkMode);document.body.style.background=darkMode?"#06060F":"#F0F2FF";document.body.style.color=darkMode?"#EEEEFF":"#1A1A3E";},[darkMode]);
   useEffect(()=>{const handler=(e)=>{if(!e.target.closest("[data-dropdown]")){setShowNotifs(false);setShowCurrencyPicker(false);setShowMenu(false);}};document.addEventListener("mousedown",handler);return()=>document.removeEventListener("mousedown",handler);},[]);
-  useEffect(()=>{if(!user)return;const ch=supabase.channel("notifs").on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{playNotifSound("gift");setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new.emoji} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);}).on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{playNotifSound("sub");setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);}).subscribe();return()=>supabase.removeChannel(ch);},[user]);
+  useEffect(()=>{
+    if(!user)return;
+    // Broadcast-based notifications (works without Supabase Realtime table config)
+    const bcastCh=supabase.channel(`gift3rs_user_${user.id}`)
+      .on("broadcast",{event:"gift_notif"},({payload})=>{
+        playNotifSound("gift");
+        setNotifications(n=>[{id:Date.now(),type:"gift",msg:`${payload.from||"Someone"} sent you a ${payload.emoji||"🎁"} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);
+      })
+      .on("broadcast",{event:"sub_notif"},({payload})=>{
+        playNotifSound("sub");
+        setNotifications(n=>[{id:Date.now(),type:"sub",msg:`${payload.from||"Someone"} just subscribed!`,time:"just now",read:false,icon:"users"},...n.slice(0,19)]);
+      })
+      .subscribe();
+    // Postgres_changes fallback (requires Realtime enabled in Supabase for gifts/subscriptions tables)
+    const pgCh=supabase.channel("pg_notifs_"+user.id)
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:`receiver_id=eq.${user.id}`},(p)=>{
+        playNotifSound("gift");
+        setNotifications(n=>[{id:Date.now(),type:"gift",msg:`Someone sent you a ${p.new?.emoji||"🎁"} gift!`,time:"just now",read:false,icon:"gift"},...n.slice(0,19)]);
+      })
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`streamer_id=eq.${user.id}`},()=>{
+        playNotifSound("sub");
+        setNotifications(n=>[{id:Date.now(),type:"sub",msg:"Someone subscribed to your channel!",time:"just now",read:false,icon:"users"},...n.slice(0,19)]);
+      })
+      .subscribe();
+    return()=>{supabase.removeChannel(bcastCh);supabase.removeChannel(pgCh);};
+  },[user?.id]); // eslint-disable-line
   useEffect(()=>{supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);fetchAvatar(session?.user);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);if(session?.user){setShowAuth(false);fetchAvatar(session.user);}});return()=>subscription.unsubscribe();},[fetchAvatar]);
 
   // When user logs in, mark any of their stale is_live=true streams as ended.
@@ -2239,7 +2351,8 @@ export default function App(){
   return(
     <><GS/>{showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={setUser}/>}
     <div style={{background:darkMode?"#06060F":"#F7F8FF",color:darkMode?"#EEEEFF":"#0F0F2E",minHeight:"100vh"}}>
-      <header className="topBar">
+    {PAYMENT_TEST_MODE&&<div className="testBanner">⚠ TEST MODE — All payments are simulated. No real money is charged.</div>}
+      <header className={`topBar${PAYMENT_TEST_MODE?" testBannerOffset":""}`}>
         <div style={{position:"relative",display:"none"}} className="desktopMenu" data-dropdown>
           <button data-dropdown onClick={()=>setShowMenu(v=>!v)} style={{background:showMenu?(darkMode?`${C.cyan}18`:"#E8F4FF"):"transparent",border:`1.5px solid ${showMenu?C.cyan:"transparent"}`,borderRadius:10,width:38,height:38,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,cursor:"pointer",flexShrink:0,transition:"all .2s",padding:0}}>
             <div style={{width:18,height:2,borderRadius:2,background:showMenu?C.cyan:(darkMode?"#EEEEFF":"#0F0F2E"),transition:"all .3s",transform:showMenu?"rotate(45deg) translateY(7px)":"none"}}/>
@@ -2284,7 +2397,7 @@ export default function App(){
           {user?(<div onClick={()=>setTab("prof")} style={{cursor:"pointer"}}>{topAvatar?<img src={topAvatar} style={{width:34,height:34,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.cyan}`}}/>:<Av ch={(user.email||"U")[0].toUpperCase()} sz={34} g={`linear-gradient(135deg,${C.cyan},${C.purple})`}/>}</div>):(<button className="btn btnC" style={{padding:"8px 16px",fontSize:13,whiteSpace:"nowrap"}} onClick={()=>setShowAuth(true)}>Sign In</button>)}
         </div>
       </header>
-      <div style={{paddingTop:60,paddingBottom:88}}>
+      <div style={{paddingTop:PAYMENT_TEST_MODE?88:60,paddingBottom:88}}>
         {tab==="home"&&<HomeFeed fmt={fmt} onStream={s=>setViewing(s)} onViewProfile={s=>setViewingProfile(s)}/>}
         {tab==="search"&&<SearchPage onStream={s=>setViewing(s)} initialSearch={search}/>}
         {tab==="live"&&<GoLivePage fmt={fmt} isStreamer={isStreamer} onBecomeStreamer={()=>setShowBecome(true)} user={user} darkMode={darkMode}/>}
