@@ -209,15 +209,23 @@ export const payStreamerFee = async ({ userId,userEmail,currency="GHS",onSuccess
 // ─────────────────────────────────────────────────────────────
 // 4. GET EARNINGS
 // ─────────────────────────────────────────────────────────────
+// Aggregate earnings directly from the gifts + subscriptions tables.
+// (In test mode no `payments` rows are written, so we read source tables.)
 export const getEarnings = async (streamerId) => {
-  const { data,error } = await supabase.from("payments").select("*").eq("metadata->>receiverId",streamerId).eq("status","success");
-  if (error) return { total:0, gifts:0, subscriptions:0, giftCount:0, subCount:0 };
-  const gifts = data.filter(p=>p.type==="gift");
-  const subs  = data.filter(p=>p.type==="subscription");
+  const giftRes = await supabase.from("gifts").select("amount_usd,streamer_cut").eq("receiver_id", streamerId);
+  const subRes  = await supabase.from("subscriptions").select("price_usd,plan,status").eq("streamer_id", streamerId).eq("status", "active");
+
+  const gifts = giftRes.data || [];
+  const subs  = subRes.data || [];
+
+  // Streamer keeps 90% of gifts, 80% of subscriptions
+  const giftEarnings = gifts.reduce((s, g) => s + (g.streamer_cut != null ? g.streamer_cut : (g.amount_usd || 0) * 0.9), 0);
+  const subEarnings  = subs.reduce((s, sub) => s + (sub.price_usd || 0) * 0.8, 0);
+
   return {
-    total:         data.reduce((s,p)=>s+(p.recipient_cut||0),0),
-    gifts:         gifts.reduce((s,p)=>s+(p.recipient_cut||0),0),
-    subscriptions: subs.reduce((s,p)=>s+(p.recipient_cut||0),0),
+    total:         +(giftEarnings + subEarnings).toFixed(2),
+    gifts:         +giftEarnings.toFixed(2),
+    subscriptions: +subEarnings.toFixed(2),
     giftCount:     gifts.length,
     subCount:      subs.length,
   };

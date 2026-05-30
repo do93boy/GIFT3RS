@@ -5,7 +5,16 @@ import { sendGift, subscribeToStreamer, payStreamerFee, PAYMENT_TEST_MODE } from
 import {
   startStream, endStream, toggleMic, toggleCamera,
   makeChannel, joinStream, leaveStream, playLocalVideo,
+  joinStreamPreview, leavePreview,
+  startScreenShare, stopScreenShare, setScreenMode, isScreenSharing, getActiveVideoTrack,
 } from "./lib/stream";
+
+// App owner / admin emails — these accounts see the Admin tab
+const ADMIN_EMAILS = ["victorymutuku02@gmail.com", "1innovativestudio@gmail.com"];
+const isAdminUser = (u) => !!u && ADMIN_EMAILS.includes((u.email || "").toLowerCase());
+
+// Count formatter: 1.2K style only at 1000+, otherwise the raw integer
+const fmtCount = (n) => { n = n || 0; return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : String(n); };
 
 /* ═══════════════════ TOKENS ═══════════════════ */
 const C = {
@@ -36,7 +45,7 @@ const CURRENCIES={
   GH:{code:"GHS",sym:"GH₵",rate:15.2,flag:"🇬🇭",name:"Ghanaian Cedi"},
 };
 function useCurrency(){
-  const [curKey,setCurKey]=useState("US");
+  const [curKey,setCurKey]=useState("KE");
   const cur=CURRENCIES[curKey];
   const fmt=useCallback((usd)=>{
     const n=usd*cur.rate;
@@ -61,7 +70,9 @@ const mapStreamRow=(s,profileMap={})=>{
   return{
     id:s.id, streamer:name, av:(name[0]||"S").toUpperCase(),
     title:s.title||"Live Stream", viewers:s.viewer_count||0, gifts:s.gift_total||0,
-    cat:s.category||"General", bg:"#0D0A20", col, verified:false, live:s.is_live!==false,
+    cat:s.category||"General", bg:"#0D0A20", col,
+    verified:!!(profile.is_streamer||profile.fee_paid||profile.streamer_verified),
+    live:s.is_live!==false,
     channel_name:s.channel_name||"", thumbnail:s.thumbnail_url||"",
     streamer_id:s.streamer_id||"",
     sp:{w:s.sub_price_weekly||1.99,m:s.sub_price_monthly||5.99,a:s.sub_price_annually||49.99},
@@ -242,6 +253,22 @@ body.light .liveBadge{background:rgba(255,255,255,.95) !important;}
 body.light ::-webkit-scrollbar-track{background:#F5F5F5 !important;}
 body.light ::-webkit-scrollbar-thumb{background:#CCCCCC !important;}
 body.light .grid{background:#F5F5F5 !important;}
+/* ── Live viewer responsive layout + fullscreen ── */
+.liveWrap{display:flex;flex:1;overflow:hidden;min-height:0;}
+.liveMain{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.liveStage{position:relative;background:#000;aspect-ratio:16/9;max-height:62vh;display:flex;align-items:center;justify-content:center;flex-shrink:0;width:100%;}
+.liveChat{width:340px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid #1E1E3A;background:#0B0B1C;}
+@media(max-width:860px){
+  .liveWrap{flex-direction:column;overflow-y:auto;overflow-x:hidden;}
+  .liveMain{flex:none;}
+  .liveStage{max-height:50vh;}
+  .liveChat{width:100%;border-left:none;border-top:1px solid #1E1E3A;min-height:300px;flex:1;}
+  .liveChatHidden{display:none!important;}
+}
+.liveWrap:fullscreen{background:#000;}
+.liveWrap:fullscreen .liveStage{max-height:100vh;height:100vh;aspect-ratio:auto;}
+.liveWrap:fullscreen .liveChat{height:100vh;}
+.liveChatHidden{display:none!important;}
 /* Force Agora-injected elements to fill their container */
 .agora_video_player{width:100%!important;height:100%!important;position:absolute!important;inset:0!important;}
 .agora_video_player video{width:100%!important;height:100%!important;object-fit:cover!important;position:absolute!important;inset:0!important;}
@@ -301,6 +328,10 @@ const Ico=({n,s=20,c="currentColor",sw=2})=>{
     play:"M5 3l14 9-14 9V3z",
     settings:"M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
     crown:"M2 20h20 M4 20l2-10 6 4 4-8 4 14",
+    maximize:"M8 3H5a2 2 0 0 0-2 2v3 M21 8V5a2 2 0 0 0-2-2h-3 M3 16v3a2 2 0 0 0 2 2h3 M16 21h3a2 2 0 0 0 2-2v-3",
+    minimize:"M8 3v3a2 2 0 0 1-2 2H3 M21 8h-3a2 2 0 0 1-2-2V3 M3 16h3a2 2 0 0 1 2 2v3 M16 21v-3a2 2 0 0 1 2-2h3",
+    monitor:"M2 3h20v14H2z M8 21h8 M12 17v4",
+    trash:"M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6 M10 11v6 M14 11v6",
     id:"M2 9a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V9z M8 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M14 11h5 M14 14h3",
     gift:"M20 12v10H4V12 M22 7H2v5h20V7z M12 22V7 M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
     star:"M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
@@ -498,7 +529,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [chat,setChat]=useState([]);
   const [msg,setMsg]=useState("");
   const [liked,setLiked]=useState(()=>{try{const savedLikes=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");return !!savedLikes[stream.id];}catch(_e){return false;}});
-  const [likes,setLikes]=useState(stream.viewers);
+  const [likes,setLikes]=useState(0);
   const [showGift,setShowGift]=useState(false);
   const [showSub,setShowSub]=useState(false);
   const [subscribed,setSubscribed]=useState(false);
@@ -509,14 +540,48 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   const [connected,setConnected]=useState(false);
   const [joinFailed,setJoinFailed]=useState(false);
   const [liveViewers,setLiveViewers]=useState(stream.viewers||0);
+  const [showChat,setShowChat]=useState(true);
+  const [isFullscreen,setIsFullscreen]=useState(false);
+  // Real streamer identity (resolved from profile)
+  const [streamerName,setStreamerName]=useState(stream.streamer||"Streamer");
+  const [streamerAvatar,setStreamerAvatar]=useState(stream.avatar_url||"");
+  const [streamerVerified,setStreamerVerified]=useState(!!stream.verified);
   const chatRef=useRef();
   const videoContainerRef=useRef();
   const bcastRef=useRef(null); // Supabase broadcast channel — works without Realtime table config
+  const stageRef=useRef(null); // fullscreen target
+  const presenceKey=useRef("v_"+Math.random().toString(36).slice(2));
+
+  // Resolve the real streamer name / avatar / verified from the profiles table
+  useEffect(()=>{
+    const sid=stream.streamer_id||stream.id;
+    if(!sid||typeof sid!=="string")return;
+    supabase.from("profiles").select("display_name,username,avatar_url,is_streamer,fee_paid,streamer_verified").eq("id",sid).single()
+      .then(({data})=>{
+        if(!data)return;
+        const name=data.display_name||data.username||stream.streamer||"Streamer";
+        setStreamerName(name);
+        if(data.avatar_url)setStreamerAvatar(data.avatar_url);
+        setStreamerVerified(!!(data.is_streamer||data.fee_paid||data.streamer_verified));
+      });
+  },[stream.streamer_id,stream.id]);
 
   useEffect(()=>{
     if(!user||!stream.id)return;
     supabase.from("subscriptions").select("id").eq("subscriber_id",user.id).eq("streamer_id",stream.streamer_id||stream.id).eq("status","active").single().then(({data})=>{if(data)setSubscribed(true);});
   },[user,stream.id]);
+
+  // Fullscreen change listener
+  useEffect(()=>{
+    const onFs=()=>setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange",onFs);
+    return()=>document.removeEventListener("fullscreenchange",onFs);
+  },[]);
+  const toggleFullscreen=()=>{
+    const el=stageRef.current;if(!el)return;
+    if(!document.fullscreenElement){el.requestFullscreen?.().catch(()=>{});}
+    else{document.exitFullscreen?.().catch(()=>{});}
+  };
 
   useEffect(()=>{
     if(!stream.channel_name)return;
@@ -556,35 +621,29 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
   },[stream.channel_name]); // eslint-disable-line
 
 
-  // ── Broadcast channel: works without Supabase Realtime table config ──────
-  // All viewers + streamer use the same channel; messages arrive instantly.
+  // ── Broadcast + Presence channel ─────────────────────────────────────────
+  // All viewers + streamer share one channel. Presence gives an accurate live
+  // viewer count without relying on Agora host events or DB polling.
   useEffect(()=>{
     if(!stream.id||typeof stream.id!=="string")return;
-    const ch=supabase.channel(`gift3rs_stream_${stream.id}`)
-      .on("broadcast",{event:"chat"},({payload})=>{
-        setChat(c=>[...c.slice(-49),payload]);
+    const ch=supabase.channel(`gift3rs_stream_${stream.id}`,{config:{presence:{key:presenceKey.current}}})
+      .on("broadcast",{event:"chat"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);})
+      .on("broadcast",{event:"gift"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);playNotifSound("gift");})
+      .on("broadcast",{event:"sub"},({payload})=>{setChat(c=>[...c.slice(-49),payload]);playNotifSound("sub");})
+      .on("broadcast",{event:"like"},()=>{setLikes(l=>l+1);})
+      .on("presence",{event:"sync"},()=>{
+        const state=ch.presenceState();
+        // count presences whose role is "viewer" (exclude the streamer)
+        let count=0;Object.values(state).forEach(arr=>arr.forEach(m=>{if(m.role!=="streamer")count++;}));
+        setLiveViewers(count);
       })
-      .on("broadcast",{event:"gift"},({payload})=>{
-        setChat(c=>[...c.slice(-49),payload]);
-        playNotifSound("gift");
-      })
-      .on("broadcast",{event:"sub"},({payload})=>{
-        setChat(c=>[...c.slice(-49),payload]);
-        playNotifSound("sub");
-      })
-      .subscribe();
+      .subscribe(async(status)=>{
+        if(status==="SUBSCRIBED"){
+          await ch.track({online_at:Date.now(),role:"viewer"});
+        }
+      });
     bcastRef.current=ch;
-    // Also keep postgres_changes as secondary fallback (if Realtime is enabled in Supabase)
-    const pgCh=supabase.channel(`pg_chat_${stream.id}`)
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:`stream_id=eq.${stream.id}`},
-        payload=>{setChat(c=>{const exists=c.find(m=>m.pg_id===payload.new.id);if(exists)return c;return[...c.slice(-49),{u:payload.new.username||"Viewer",t:payload.new.message,c:C.cyan,id:Date.now(),pg_id:payload.new.id}];})})
-      .subscribe();
-    // Poll viewer count every 10s as fallback
-    const vcPoll=setInterval(async()=>{
-      const {data}=await supabase.from("streams").select("viewer_count").eq("id",stream.id).single();
-      if(data?.viewer_count!=null)setLiveViewers(data.viewer_count);
-    },10000);
-    return()=>{supabase.removeChannel(ch);supabase.removeChannel(pgCh);clearInterval(vcPoll);bcastRef.current=null;};
+    return()=>{supabase.removeChannel(ch);bcastRef.current=null;};
   },[stream.id]); // eslint-disable-line
 
   useEffect(()=>{
@@ -620,9 +679,9 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
     playNotifSound("gift");launchFloat(emoji,amount);setGiftTotal(g=>g+amount);
     const uname=user?.email?.split("@")[0]||"Viewer";
     const giftName={star:"Star",zap:"Fire",diamond:"Diamond",rocket:"Rocket",crown:"Crown",coins:"Bag",trophy:"Trophy"};
-    const payload={u:uname,t:message||(emoji==="edit"?"sent a custom gift":"sent a "+giftName[emoji]),c:C.gold,gift:emoji==="edit"?"coins":emoji,customAmt:fmtAmt||null,id:Date.now()+1,type:"gift"};
+    const payload={u:uname,t:message||(emoji==="edit"?"sent a custom gift":"sent a "+giftName[emoji]),c:C.gold,gift:emoji==="edit"?"coins":emoji,customAmt:fmtAmt||null,amount,id:Date.now()+1,type:"gift"};
     setChat(c=>[...c,payload]);
-    // Broadcast gift to all viewers + streamer dashboard
+    // Broadcast gift to all viewers + streamer dashboard (amount included for totals)
     bcastRef.current?.send({type:"broadcast",event:"gift",payload});
     // Notify streamer personally via their user channel
     if(stream.streamer_id){
@@ -654,9 +713,9 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
       {showGift&&<GiftModal stream={stream} fmt={fmt} onClose={()=>setShowGift(false)} onSent={onGiftSent} user={user} currency={cur?.code||"USD"}/>}
       {showSub&&<SubModal stream={stream} fmt={fmt} onClose={()=>setShowSub(false)} onSubscribed={onSubscribed} user={user} currency={cur?.code||"USD"}/>}
       <div style={{display:"flex",flex:1,overflow:"hidden",flexDirection:"column"}}>
-        <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            <div style={{position:"relative",background:`linear-gradient(160deg,${stream.bg},#000)`,aspectRatio:"16/9",maxHeight:"60vh",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        <div className="liveWrap" ref={stageRef}>
+          <div className="liveMain">
+            <div className="liveStage" style={{background:`linear-gradient(160deg,${stream.bg},#000)`}}>
               {/* Agora renders its own <video> inside this div — passing a <video> element to
                   track.play() causes Agora to nest a div inside it which browsers silently
                   drop, leaving a black screen.  A <div> container is the correct target. */}
@@ -665,7 +724,7 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 <div style={{position:"absolute",inset:0,background:`radial-gradient(circle at 50%,${stream.col}15,transparent 60%)`}}/>
                 <div style={{zIndex:2,display:"flex",flexDirection:"column",alignItems:"center"}}>
                   <div className="avRing pulseRing" style={{display:"inline-block"}}><Av ch={stream.av} sz={72} g={`linear-gradient(135deg,${stream.col},${C.purple})`}/></div>
-                  <div style={{fontSize:13,color:"rgba(255,255,255,.6)",textAlign:"center",marginTop:8}}>{stream.streamer} is live</div>
+                  <div style={{fontSize:13,color:"rgba(255,255,255,.6)",textAlign:"center",marginTop:8}}>{streamerName} is live</div>
                 </div>
                 <div style={{position:"absolute",bottom:50,left:"50%",transform:"translateX(-50%)",display:"flex",gap:2,opacity:.4}}>
                   {[.9,1.1,.8,1.3,.7,1.0,.85,1.2,.75,1.1,.9,.8,1.3,.7,1.0].map((d,i)=>(<div key={i} className="wBar" style={{animationDelay:`${i*.07}s`,animationDuration:`${d}s`}}/>))}
@@ -696,34 +755,44 @@ const LiveViewer=({stream,fmt,onBack,user,onAuthRequired,cur,onViewProfile})=>{
                 <div style={{marginTop:5}}><span className="tag" style={{background:`${stream.col}25`,color:stream.col,border:`1px solid ${stream.col}30`,fontSize:10}}>{stream.cat}</span></div>
               </div>
               <div style={{position:"absolute",right:14,bottom:70,display:"flex",flexDirection:"column",gap:14,alignItems:"center",zIndex:4}}>
-                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}const newLiked=!liked;setLiked(newLiked);setLikes(l=>newLiked?l+1:l-1);try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");if(newLiked)ls[stream.id]=true;else delete ls[stream.id];localStorage.setItem("gift3rs_likes",JSON.stringify(ls));}catch(e){console.error(e);}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}const newLiked=!liked;setLiked(newLiked);setLikes(l=>Math.max(0,newLiked?l+1:l-1));if(newLiked)bcastRef.current?.send({type:"broadcast",event:"like",payload:{}});try{const ls=JSON.parse(localStorage.getItem("gift3rs_likes")||"{}");if(newLiked)ls[stream.id]=true;else delete ls[stream.id];localStorage.setItem("gift3rs_likes",JSON.stringify(ls));}catch(e){console.error(e);}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"transform .15s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.2)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
                   <div style={{filter:liked?"drop-shadow(0 0 8px #FF2D2D) drop-shadow(0 0 16px #FF2D2D88)":"none",transition:"filter .3s"}}>
                     <svg width={26} height={26} viewBox="0 0 24 24" fill={liked?"#FF2D2D":"none"} stroke={liked?"#FF2D2D":"#fff"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                   </div>
-                  <span style={{fontSize:10,color:liked?"#FF2D2D":"#fff",fontWeight:liked?800:400}}>{(likes/1000).toFixed(1)}K</span>
+                  <span style={{fontSize:10,color:liked?"#FF2D2D":"#fff",fontWeight:liked?800:400}}>{fmtCount(likes)}</span>
                 </button>
-                <button onClick={()=>{const url=`${window.location.origin}?stream=${stream.id}`;if(navigator.share){navigator.share({title:stream.title,text:`Watch ${stream.streamer} live on GIFT3RS!`,url});}else{navigator.clipboard.writeText(url).then(()=>alert("Stream link copied!"));}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <button onClick={()=>{const url=`${window.location.origin}?stream=${stream.id}`;if(navigator.share){navigator.share({title:stream.title,text:`Watch ${streamerName} live on GIFT3RS!`,url});}else{navigator.clipboard.writeText(url).then(()=>alert("Stream link copied!"));}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                   <Ico n="share" s={22} c="#fff"/>
                   <span style={{fontSize:10,color:"#fff"}}>Share</span>
+                </button>
+                <button onClick={()=>setShowChat(v=>!v)} title={showChat?"Hide chat":"Show chat"} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <Ico n="users" s={22} c={showChat?C.cyan:"#fff"}/>
+                  <span style={{fontSize:10,color:showChat?C.cyan:"#fff"}}>Chat</span>
+                </button>
+                <button onClick={toggleFullscreen} title="Fullscreen" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <Ico n={isFullscreen?"minimize":"maximize"} s={22} c="#fff"/>
+                  <span style={{fontSize:10,color:"#fff"}}>{isFullscreen?"Exit":"Full"}</span>
                 </button>
               </div>
             </div>
             <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${C.border}`,background:C.surf,flexShrink:0}}>
-              <Av ch={stream.av} sz={40} g={`linear-gradient(135deg,${stream.col},${C.purple})`}/>
-              <div style={{flex:1}}>
+              <div onClick={()=>onViewProfile&&onViewProfile(stream)} style={{cursor:"pointer",flexShrink:0}}>
+                {streamerAvatar?<img src={streamerAvatar} alt="" style={{width:40,height:40,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={(streamerName[0]||"S").toUpperCase()} sz={40} g={`linear-gradient(135deg,${stream.col},${C.purple})`}/>}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span className="exo" style={{fontWeight:900,fontSize:15,cursor:"pointer"}} onClick={()=>onViewProfile&&onViewProfile(stream)} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{stream.streamer}</span>
-                  {(stream.verified||stream.viewers>=1000)&&<span title="Verified Creator" style={{display:"inline-flex",width:18,height:18,borderRadius:"50%",background:stream.viewers>=1000&&likes>=1000?"#0095F6":"#FF8C42",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="check" s={11} c="#fff" sw={3}/></span>}
+                  <span className="exo" style={{fontWeight:900,fontSize:15,cursor:"pointer"}} onClick={()=>onViewProfile&&onViewProfile(stream)} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{streamerName}</span>
+                  {streamerVerified&&<span title="Verified Streamer" style={{display:"inline-flex",width:18,height:18,borderRadius:"50%",background:"#0095F6",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="check" s={11} c="#fff" sw={3}/></span>}
                 </div>
                 <div style={{fontSize:12,color:C.muted}}>from {fmt(stream.sp.m)}/month</div>
               </div>
-              <button onClick={()=>setShowSub(true)} className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"9px 18px",fontSize:13}}>
+              <button onClick={()=>{if(!user){onAuthRequired&&onAuthRequired();return;}if(subscribed)return;setShowSub(true);}} className={`btn ${subscribed?"btnS":"btnP"}`} style={{padding:"9px 18px",fontSize:13,cursor:subscribed?"default":"pointer"}}>
                 {subscribed?<span style={{display:"flex",alignItems:"center",gap:5}}><Ico n="check" s={13} c="#06060F" sw={3}/>Subscribed</span>:"Subscribe"}
               </button>
             </div>
           </div>
-          <div style={{width:320,flexShrink:0,display:"flex",flexDirection:"column",borderLeft:`1px solid ${C.border}`,background:C.surf}}>
-            <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,fontSize:13}}>LIVE CHAT</span></div>
+          <div className={`liveChat${showChat?"":" liveChatHidden"}`}>
+            <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,fontSize:13}}>LIVE CHAT</span><span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}}><Ico n="eye" s={12} c={C.muted}/>{fmtCount(liveViewers)}</span><button onClick={()=>setShowChat(false)} style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex"}}><Ico n="close" s={15} c={C.muted}/></button></div>
             <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:"10px 12px"}}>
               {chat.map((m,i)=>(
                 <div key={m.id||i} className="chatMsg" style={{marginBottom:8}}>
@@ -779,8 +848,11 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
   const [muted,setMuted]=useState(true);
   const [previewFrame,setPreviewFrame]=useState(0);
   const [hoverThumb,setHoverThumb]=useState(""); // live frame or thumbnail fetched on hover
+  const [livePreviewing,setLivePreviewing]=useState(false);
   const hoverTimer=useRef(null);
   const frameTimer=useRef(null);
+  const previewClientRef=useRef(null);
+  const previewElRef=useRef(null);
 
   const handleMouseEnter=()=>{
     hoverTimer.current=setTimeout(()=>{
@@ -788,20 +860,26 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
       frameTimer.current=setInterval(()=>setPreviewFrame(f=>(f+1)%4),800);
       // For real streams without a thumbnail: fetch thumbnail on hover
       if(s.isReal&&!thumbSrc){
-        supabase.from("streams")
-          .select("thumbnail_url")
-          .eq("id",s.id).single()
-          .then(({data})=>{
-            if(data?.thumbnail_url) setHoverThumb(data.thumbnail_url);
-          });
+        supabase.from("streams").select("thumbnail_url").eq("id",s.id).single()
+          .then(({data})=>{if(data?.thumbnail_url) setHoverThumb(data.thumbnail_url);});
+      }
+      // YouTube-style LIVE preview: join the Agora channel muted and render the video
+      if(s.live&&s.channel_name&&!previewClientRef.current){
+        joinStreamPreview({channelName:s.channel_name,onVideoTrack:(track)=>{
+          const el=previewElRef.current;
+          if(el){try{el.innerHTML="";track.play(el);setLivePreviewing(true);}catch(_){}}
+        }}).then(c=>{previewClientRef.current=c;});
       }
     },500);
   };
   const handleMouseLeave=()=>{
     clearTimeout(hoverTimer.current);
     clearInterval(frameTimer.current);
-    setHovered(false);setPreviewFrame(0);setMuted(true);
+    setHovered(false);setPreviewFrame(0);setMuted(true);setLivePreviewing(false);
+    if(previewClientRef.current){leavePreview(previewClientRef.current);previewClientRef.current=null;}
+    if(previewElRef.current)previewElRef.current.innerHTML="";
   };
+  useEffect(()=>()=>{if(previewClientRef.current){leavePreview(previewClientRef.current);previewClientRef.current=null;}},[]);
 
   // Best available preview image for this card
   const previewImg=thumbSrc||hoverThumb||"";
@@ -815,6 +893,8 @@ const StreamCard=({s,fmt,onClick,onViewProfile})=>{
   return(
     <div className="sCard" onClick={onClick} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} style={{position:"relative"}}>
       <div style={{position:"relative",background:`linear-gradient(160deg,${s.bg},#000)`,paddingTop:"56.25%",overflow:"hidden"}}>
+        {/* YouTube-style live video preview (Agora) — appears on hover, on top of the thumbnail */}
+        {hovered&&s.live&&s.channel_name&&<div ref={previewElRef} style={{position:"absolute",inset:0,zIndex:3,background:"#000",overflow:"hidden",opacity:livePreviewing?1:0,transition:"opacity .3s"}}/>}
         {/* Thumbnail: show set thumbnail, fetched live frame, or animated preview */}
         {previewImg?(
           <div style={{position:"absolute",inset:0}}>
@@ -931,8 +1011,8 @@ const HomeFeed=({fmt,onStream,onViewProfile})=>{
     const ch=supabase.channel("homefeed_streams")
       .on("postgres_changes",{event:"*",schema:"public",table:"streams"},()=>load())
       .subscribe();
-    // Periodic refresh every 30 seconds as backup
-    const interval=setInterval(load,30000);
+    // Refresh the feed every 5 seconds
+    const interval=setInterval(load,5000);
     return()=>{cancelled=true;supabase.removeChannel(ch);clearInterval(interval);};
   },[]);
 
@@ -1080,6 +1160,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const [thumbPreview,setThumbPreview]=useState("");const [thumbFile,setThumbFile]=useState(null);
   const [studioTab,setStudioTab]=useState("setup");
   const [chatMsg,setChatMsg]=useState("");const [studioChat,setStudioChat]=useState([]);
+  const [studioGifts,setStudioGifts]=useState([]);const [studioSubs,setStudioSubs]=useState([]);
+  const [sharing,setSharing]=useState(false);const [shareMode,setShareMode]=useState("both");
   const [quality,setQuality]=useState("1080p");const [tags,setTags]=useState([]);const [tagInput,setTagInput]=useState("");
   const [scheduledStreams,setScheduledStreams]=useState([]);const [schedTitle,setSchedTitle]=useState("");const [scheduledTime,setScheduledTime]=useState("");
   const [showViewerCount,setShowViewerCount]=useState(true);const [allowComments,setAllowComments]=useState(true);
@@ -1136,8 +1218,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     const attach=()=>{
       const div=liveVideoRef.current;
       if(!div){if(attempts++<40){tid=window.setTimeout(attach,150);}return;}
-      const track=localVideoTrack.current;
-      // localVideoTrack.current = ICameraVideoTrack (camera, not mic)
+      const track=(getActiveVideoTrack&&getActiveVideoTrack())||localVideoTrack.current;
+      // active track = composite (when screen sharing) or camera
       if(!track){if(attempts++<40){tid=window.setTimeout(attach,250);}return;}
       try{
         div.innerHTML=""; // clear any previous Agora render
@@ -1158,51 +1240,43 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
 
   // Frame capture disabled — live_thumbnail_url column not in DB schema
 
-  // Real-time: broadcast channel (primary) + postgres_changes fallback + viewer count poll
+  // Real-time: broadcast + presence (accurate viewer count) + postgres fallback
   useEffect(()=>{
     if(!isLive||!streamId)return;
 
-    // PRIMARY: Broadcast — works without Supabase Realtime table configuration
-    const bcastCh=supabase.channel(`gift3rs_stream_${streamId}`,{config:{broadcast:{self:false}}})
+    const bcastCh=supabase.channel(`gift3rs_stream_${streamId}`,{config:{presence:{key:"streamer_"+streamId}}})
       .on("broadcast",{event:"chat"},({payload})=>{
         setStudioChat(c=>[...c.slice(-99),{...payload,type:payload.type||"viewer",c:payload.c||C.purple}]);
       })
       .on("broadcast",{event:"gift"},({payload})=>{
-        setGiftTotal(g=>g+(payload.amount||0));
+        const amt=payload.amount||0;
+        setGiftTotal(g=>g+amt);
         setStudioChat(c=>[...c.slice(-99),{...payload,type:"gift"}]);
+        setStudioGifts(g=>[{u:payload.u||"Someone",emoji:payload.gift||"gift",amount:amt,msg:payload.t,id:payload.id||Date.now()},...g.slice(0,49)]);
         if(giftNotifs)playNotifSound("gift");
       })
       .on("broadcast",{event:"sub"},({payload})=>{
         setStudioChat(c=>[...c.slice(-99),{...payload,type:"sub"}]);
+        setStudioSubs(s=>[{u:payload.u||"Someone",id:payload.id||Date.now()},...s.slice(0,49)]);
         playNotifSound("sub");
       })
-      .subscribe();
+      .on("presence",{event:"sync"},()=>{
+        const state=bcastCh.presenceState();
+        let count=0;Object.values(state).forEach(arr=>arr.forEach(m=>{if(m.role!=="streamer")count++;}));
+        setViewers(count);
+        supabase.from("streams").update({viewer_count:count}).eq("id",streamId).then(null,null);
+      })
+      .subscribe(async(status)=>{ if(status==="SUBSCRIBED"){ await bcastCh.track({role:"streamer"}); } });
     studioBcastRef.current=bcastCh;
 
-    // FALLBACK: postgres_changes (requires Realtime enabled on tables in Supabase)
-    const pgChatCh=supabase.channel("pg_studio_chat_"+streamId)
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"chat_messages",filter:"stream_id=eq."+streamId},p=>{
-        const d=p.new;
-        setStudioChat(c=>{const exists=c.find(m=>m.pg_id===d.id);if(exists)return c;return[...c.slice(-99),{u:d.username||"Viewer",t:d.message,id:Date.now(),pg_id:d.id,type:"viewer",c:C.purple}];});
-      }).subscribe();
+    // FALLBACK: postgres_changes for gifts (also feeds the Gifts panel)
     const pgGiftCh=supabase.channel("pg_studio_gifts_"+streamId)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"gifts",filter:"stream_id=eq."+streamId},p=>{
         const d=p.new;
-        setGiftTotal(g=>g+(d.amount_usd||0));
-        setStudioChat(c=>{const exists=c.find(m=>m.pg_id===d.id);if(exists)return c;return[...c.slice(-99),{u:d.sender_username||"Someone",t:"sent a "+(d.emoji||"gift"),id:Date.now(),pg_id:d.id,type:"gift",emoji:d.emoji,c:C.gold}];});
-        if(giftNotifs)playNotifSound("gift");
+        setStudioGifts(g=>{if(g.find(x=>x.pg_id===d.id))return g;return [{u:d.sender_username||"Someone",emoji:d.emoji||"gift",amount:d.amount_usd||0,msg:d.message,id:Date.now(),pg_id:d.id},...g.slice(0,49)];});
       }).subscribe();
 
-    // Viewer count poll every 8s
-    const vcInt=window.setInterval(async()=>{
-      const {data}=await supabase.from("streams").select("viewer_count").eq("id",streamId).single();
-      if(data?.viewer_count!=null)setViewers(data.viewer_count);
-    },8000);
-
-    return()=>{
-      supabase.removeChannel(bcastCh);supabase.removeChannel(pgChatCh);supabase.removeChannel(pgGiftCh);
-      window.clearInterval(vcInt);studioBcastRef.current=null;
-    };
+    return()=>{ supabase.removeChannel(bcastCh);supabase.removeChannel(pgGiftCh);studioBcastRef.current=null; };
   },[isLive,streamId,giftNotifs]); // eslint-disable-line
 
   const dur=String(Math.floor(secs/3600)).padStart(2,"0")+":"+String(Math.floor((secs%3600)/60)).padStart(2,"0")+":"+String(secs%60).padStart(2,"0");
@@ -1310,6 +1384,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     localVideoTrack.current=null;localAudioTrack.current=null;
     if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0}).eq("id",streamId);}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
+    setStudioGifts([]);setStudioSubs([]);setSharing(false);
     setThumbPreview("");setThumbFile(null);setCamOn(true);setMicOn(true);
     // Restart camera preview for the setup tab
     setTimeout(restartCameraPreview, 800);
@@ -1331,6 +1406,58 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
       try{const div=liveVideoRef.current;div.innerHTML="";vTrack.play(div);}catch(_){}
     }
   };
+
+  // ── Screen share ──────────────────────────────────────────────────────────
+  const renderActiveTrack=()=>{
+    const t=getActiveVideoTrack&&getActiveVideoTrack();
+    const div=liveVideoRef.current;
+    if(t&&div){try{div.innerHTML="";t.play(div);}catch(_){}}
+  };
+  const handleToggleShare=async()=>{
+    try{
+      if(!sharing){
+        await startScreenShare({mode:shareMode});
+        setSharing(true);
+        setTimeout(renderActiveTrack,300);
+      }else{
+        await stopScreenShare();
+        setSharing(false);
+        setTimeout(renderActiveTrack,300);
+      }
+    }catch(e){
+      // user cancelled the screen picker, or not supported
+      if(e?.name!=="NotAllowedError")setStreamError(e?.message||"Screen share failed");
+      setSharing(isScreenSharing());
+    }
+  };
+  const changeShareMode=(mode)=>{setShareMode(mode);setScreenMode(mode);};
+
+  // Capture a frame from the live preview every 20s and use it as the stream
+  // thumbnail — but ONLY when the streamer did not upload their own thumbnail.
+  useEffect(()=>{
+    if(!isLive||!streamId||thumbFile)return;
+    const capture=async()=>{
+      const div=liveVideoRef.current;
+      const vid=div?.querySelector("video");
+      if(!vid||!vid.videoWidth)return;
+      try{
+        const W=Math.min(vid.videoWidth,1280),H=Math.min(vid.videoHeight,720);
+        const canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;
+        canvas.getContext("2d").drawImage(vid,0,0,W,H);
+        canvas.toBlob(async(blob)=>{
+          if(!blob)return;
+          const path="previews/"+streamId+".jpg";
+          const {error}=await supabase.storage.from("gift3rs-media").upload(path,blob,{upsert:true,contentType:"image/jpeg"});
+          if(error)return;
+          const {data:u}=supabase.storage.from("gift3rs-media").getPublicUrl(path);
+          await supabase.from("streams").update({thumbnail_url:u.publicUrl+"?v="+Date.now()}).eq("id",streamId).then(null,null);
+        },"image/jpeg",0.7);
+      }catch(_){}
+    };
+    const t1=setTimeout(capture,6000);
+    const t2=setInterval(capture,20000);
+    return()=>{clearTimeout(t1);clearInterval(t2);};
+  },[isLive,streamId,thumbFile,sharing]); // eslint-disable-line
   const sendStudioMsg=async()=>{
     if(!chatMsg.trim())return;const msg=chatMsg.trim();setChatMsg("");
     const uname=user?.email?.split("@")[0]||"Streamer";
@@ -1351,8 +1478,8 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     setScheduledStreams(s=>[...s,{title:schedTitle,time:scheduledTime,id:data?.id||Date.now()}]);
     setSchedTitle("");setScheduledTime("");
   };
-  const activeTabs=isLive?["stream","chat","analytics","settings"]:["setup","schedule","analytics","settings"];
-  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users"};
+  const activeTabs=isLive?["stream","gifts","chat","analytics","settings"]:["setup","schedule","analytics","settings"];
+  const TAB_ICONS={setup:"camera",schedule:"bell",analytics:"barchart",settings:"settings",stream:"mic",chat:"users",gifts:"gift"};
 
   if(!isStreamer)return(
     <div style={{padding:"24px 20px"}} className="page">
@@ -1444,10 +1571,16 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
               <video ref={captureRef} autoPlay muted playsInline style={{display:"none"}}/>
               <div style={{position:"absolute",top:12,left:12,display:"flex",gap:8,alignItems:"center"}}><div className="liveDot"/><span className="exo" style={{fontWeight:900,color:"#FF2D2D",fontSize:13,background:"rgba(0,0,0,.65)",padding:"3px 10px",borderRadius:6}}>ON AIR — {dur}</span></div>
               <div style={{position:"absolute",top:12,right:12,background:"rgba(0,0,0,.75)",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#fff",display:"flex",alignItems:"center",gap:5}}><Ico n="eye" s={11} c="#fff"/>{viewers.toLocaleString()} watching</div>
-              <div style={{position:"absolute",bottom:12,left:"50%",transform:"translateX(-50%)",display:"flex",gap:8}}>
-                <button onClick={handleToggleCam} style={{background:camOn?"rgba(0,229,255,.25)":"rgba(255,45,45,.25)",border:`1px solid ${camOn?C.cyan:"#FF2D2D"}`,borderRadius:10,padding:"7px 14px",color:camOn?C.cyan:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,backdropFilter:"blur(8px)"}}><Ico n="camera" s={13} c={camOn?C.cyan:"#FF6060"}/>{camOn?"Cam On":"Cam Off"}</button>
-                <button onClick={handleToggleMic} style={{background:micOn?"rgba(177,78,255,.25)":"rgba(255,45,45,.25)",border:`1px solid ${micOn?C.purple:"#FF2D2D"}`,borderRadius:10,padding:"7px 14px",color:micOn?C.purple:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,backdropFilter:"blur(8px)"}}><Ico n="mic" s={13} c={micOn?C.purple:"#FF6060"}/>{micOn?"Mic On":"Mic Off"}</button>
+              <div style={{position:"absolute",bottom:12,left:"50%",transform:"translateX(-50%)",display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",maxWidth:"95%"}}>
+                <button onClick={handleToggleCam} style={{background:camOn?"rgba(0,229,255,.25)":"rgba(255,45,45,.25)",border:`1px solid ${camOn?C.cyan:"#FF2D2D"}`,borderRadius:10,padding:"7px 14px",color:camOn?C.cyan:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,backdropFilter:"blur(8px)"}}><Ico n="camera" s={13} c={camOn?C.cyan:"#FF6060"}/>{camOn?"Cam":"Cam Off"}</button>
+                <button onClick={handleToggleMic} style={{background:micOn?"rgba(177,78,255,.25)":"rgba(255,45,45,.25)",border:`1px solid ${micOn?C.purple:"#FF2D2D"}`,borderRadius:10,padding:"7px 14px",color:micOn?C.purple:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,backdropFilter:"blur(8px)"}}><Ico n="mic" s={13} c={micOn?C.purple:"#FF6060"}/>{micOn?"Mic":"Mic Off"}</button>
+                <button onClick={handleToggleShare} style={{background:sharing?"rgba(0,229,160,.25)":"rgba(0,0,0,.6)",border:`1px solid ${sharing?C.emerald:"rgba(255,255,255,.3)"}`,borderRadius:10,padding:"7px 14px",color:sharing?C.emerald:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,backdropFilter:"blur(8px)"}}><Ico n="monitor" s={13} c={sharing?C.emerald:"#fff"}/>{sharing?"Stop Share":"Share Screen"}</button>
               </div>
+              {sharing&&<div style={{position:"absolute",top:54,left:12,display:"flex",gap:6,background:"rgba(0,0,0,.6)",borderRadius:10,padding:"5px",backdropFilter:"blur(8px)"}}>
+                {[["both","Screen + Cam"],["screen","Screen only"],["cam","Cam only"]].map(([m,label])=>(
+                  <button key={m} onClick={()=>changeShareMode(m)} style={{background:shareMode===m?C.emerald:"transparent",color:shareMode===m?"#06060F":"#fff",border:"none",borderRadius:7,padding:"4px 9px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{label}</button>
+                ))}
+              </div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
               {[["eye",viewers.toLocaleString(),"Watching",C.cyan],["gift",fmt(giftTotal),"Gifts",C.gold],["coins",fmt(giftTotal*.9),"Your Cut",C.emerald]].map(([icon,val,label,col],i)=>(
@@ -1497,6 +1630,26 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
           </div>
           <div style={{display:"flex",gap:8}}><input className="inp" value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendStudioMsg();}} placeholder={isLive?"Reply to your viewers...":"Go live to chat with viewers..."} disabled={!isLive} style={{flex:1,opacity:isLive?1:.6}}/><button className="btn btnC" style={{padding:"0 18px",flexShrink:0,opacity:isLive&&chatMsg.trim()?1:.5}} onClick={sendStudioMsg} disabled={!isLive||!chatMsg.trim()}>Send</button></div>
           {!isLive&&<div style={{fontSize:11,color:C.muted,textAlign:"center",marginTop:8}}>Go live from the Setup tab to chat with viewers</div>}
+        </div>}
+
+        {/* GIFTS TAB — live gifts received this stream */}
+        {studioTab==="gifts"&&<div style={{maxWidth:560}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+            {[["gift","Gifts This Stream",fmt(giftTotal),C.gold],["coins","Your Cut (90%)",fmt(giftTotal*.9),C.emerald],["trophy","Gift Count",String(studioGifts.length),C.amber]].map(([icon,label,val,col],i)=>(
+              <div key={i} className="card" style={{padding:"14px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:6}}><Ico n={icon} s={20} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:16,color:col}}>{val}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{label}</div></div>
+            ))}
+          </div>
+          <div className="card" style={{padding:"16px"}}>
+            <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:12,display:"flex",alignItems:"center",gap:8}}><Ico n="gift" s={16} c={C.gold}/>Live Gifts</div>
+            {studioGifts.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.muted,fontSize:13}}>No gifts yet — gifts from viewers appear here in real time.</div>}
+            {studioGifts.map((g,i)=>(
+              <div key={g.id||i} className="chatMsg" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<studioGifts.length-1?`1px solid ${C.border}`:"none"}}>
+                <div style={{width:38,height:38,borderRadius:11,background:`${C.gold}20`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n={g.emoji&&g.emoji!=="edit"?g.emoji:"coins"} s={18} c={C.gold}/></div>
+                <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13}}>{g.u}</div><div style={{fontSize:11,color:C.muted}}>{g.msg||"sent a gift"}</div></div>
+                <div className="exo" style={{fontWeight:900,fontSize:14,color:C.gold}}>{fmt(g.amount||0)}</div>
+              </div>
+            ))}
+          </div>
         </div>}
 
         {/* SCHEDULE TAB */}
@@ -1573,6 +1726,8 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
   const [earnings,setEarnings]=useState({total:0,gifts:0,subscriptions:0,giftCount:0,subCount:0});
   const [recentGifters,setRecentGifters]=useState([]);
   const [recentStreams,setRecentStreams]=useState([]);
+  const [subscribers,setSubscribers]=useState([]);
+  const [giftLog,setGiftLog]=useState([]);
   const [loading,setLoading]=useState(true);
   const [payoutAccount,setPayoutAccount]=useState("");
   const [savingPayout,setSavingPayout]=useState(false);
@@ -1586,13 +1741,22 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
       // Recent streams
       const {data:streams}=await supabase.from("streams").select("id,title,category,viewer_count,gift_total,started_at,ended_at").eq("streamer_id",user.id).order("started_at",{ascending:false}).limit(5);
       if(streams)setRecentStreams(streams);
-      // Top gifters
-      const {data:gifts}=await supabase.from("gifts").select("sender_id,amount_usd,sender_username").eq("receiver_id",user.id).order("amount_usd",{ascending:false}).limit(20);
+      // Top gifters + detailed gift log
+      const {data:gifts}=await supabase.from("gifts").select("sender_id,amount_usd,sender_username,emoji,message,created_at").eq("receiver_id",user.id).order("created_at",{ascending:false}).limit(50);
       if(gifts){
         const agg={};
         gifts.forEach(g=>{const k=g.sender_username||g.sender_id||"Anonymous";agg[k]=(agg[k]||0)+(g.amount_usd||0);});
-        setRecentGifters(Object.entries(agg).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,amt])=>({name,amt})));
+        setRecentGifters(Object.entries(agg).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,amt])=>({name,amt})));
+        setGiftLog(gifts.slice(0,30));
       }
+      // Subscribers list (active) with profile names
+      const {data:subs}=await supabase.from("subscriptions").select("subscriber_id,plan,price_usd,created_at").eq("streamer_id",user.id).eq("status","active").order("created_at",{ascending:false}).limit(50);
+      if(subs&&subs.length){
+        const subIds=[...new Set(subs.map(s=>s.subscriber_id).filter(Boolean))];
+        let pmap={};
+        if(subIds.length){const {data:profs}=await supabase.from("profiles").select("id,display_name,username,avatar_url").in("id",subIds);if(profs)profs.forEach(p=>{pmap[p.id]=p;});}
+        setSubscribers(subs.map(s=>({...s,name:pmap[s.subscriber_id]?.display_name||pmap[s.subscriber_id]?.username||"Subscriber",avatar:pmap[s.subscriber_id]?.avatar_url||""})));
+      }else setSubscribers([]);
       // Load payout account from profile
       const {data:profile}=await supabase.from("profiles").select("payout_account").eq("id",user.id).single();
       if(profile?.payout_account)setPayoutAccount(profile.payout_account);
@@ -1648,8 +1812,8 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
           </div>
         ))}
       </div>
-      <div style={{display:"flex",gap:6,marginBottom:20,background:C.card2,borderRadius:14,padding:4,maxWidth:400}}>
-        {["overview","gifters","streams"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",transition:"all .2s",textTransform:"capitalize"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
+      <div className="sx" style={{display:"flex",gap:6,marginBottom:20,background:C.card2,borderRadius:14,padding:4,maxWidth:560}}>
+        {["overview","subscribers","gifts","gifters","streams"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s",textTransform:"capitalize",whiteSpace:"nowrap"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>))}
       </div>
       {tab==="overview"&&<div style={{maxWidth:700}}>
         <div className="card" style={{padding:"18px",marginBottom:14}}>
@@ -1666,7 +1830,33 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
         <div className="card" style={{padding:"18px"}}>
           <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:12,color:darkMode?C.text:"#0F0F0F"}}>Payout Account</div>
           <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Mobile money number or bank account for withdrawals</div>
-          <div style={{display:"flex",gap:8}}><input className="inp" value={payoutAccount} onChange={e=>setPayoutAccount(e.target.value)} placeholder="e.g. +233 XX XXX XXXX or account number" style={{flex:1,fontSize:13}}/><button className="btn btnC" style={{padding:"0 16px",fontSize:13,flexShrink:0,opacity:savingPayout?.6:1}} onClick={savePayout}>{savingPayout?"Saving...":"Save"}</button></div>
+          <div style={{display:"flex",gap:8}}><input className="inp" value={payoutAccount} onChange={e=>setPayoutAccount(e.target.value)} placeholder="e.g. M-Pesa +254 7XX XXX XXX or account number" style={{flex:1,fontSize:13}}/><button className="btn btnC" style={{padding:"0 16px",fontSize:13,flexShrink:0,opacity:savingPayout?.6:1}} onClick={savePayout}>{savingPayout?"Saving...":"Save"}</button></div>
+        </div>
+      </div>}
+      {tab==="subscribers"&&<div style={{maxWidth:600}}>
+        <div className="card" style={{padding:"18px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>Your Subscribers</div><span style={{fontSize:11,color:C.muted}}>{subscribers.length} active</span></div>
+          {subscribers.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No subscribers yet. Share your channel to gain subscribers!</div>}
+          {subscribers.map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<subscribers.length-1?`1px solid ${C.border}`:"none"}}>
+              {s.avatar?<img src={s.avatar} alt="" style={{width:40,height:40,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={(s.name[0]||"S").toUpperCase()} sz={40} g={`linear-gradient(135deg,${C.purple},${C.pink})`}/>}
+              <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>{s.name}</div><div style={{fontSize:11,color:C.muted}}>{(s.plan||"monthly")} · since {s.created_at?new Date(s.created_at).toLocaleDateString():"—"}</div></div>
+              <div className="exo" style={{fontWeight:900,color:C.purple,fontSize:13}}>{fmt((s.price_usd||0)*0.8)}<span style={{fontSize:9,color:C.muted}}> /you</span></div>
+            </div>
+          ))}
+        </div>
+      </div>}
+      {tab==="gifts"&&<div style={{maxWidth:600}}>
+        <div className="card" style={{padding:"18px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14,color:darkMode?C.text:"#0F0F0F"}}>Gifts Received</div><span style={{fontSize:11,color:C.muted}}>{earnings.giftCount} total</span></div>
+          {giftLog.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No gifts received yet.</div>}
+          {giftLog.map((g,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:i<giftLog.length-1?`1px solid ${C.border}`:"none"}}>
+              <div style={{width:38,height:38,borderRadius:11,background:`${C.gold}20`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n={g.emoji&&g.emoji!=="edit"?g.emoji:"coins"} s={18} c={C.gold}/></div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,color:darkMode?C.text:"#0F0F0F"}}>{g.sender_username||"Anonymous"}</div><div style={{fontSize:11,color:C.muted}}>{g.message||"sent a gift"} · {g.created_at?new Date(g.created_at).toLocaleDateString():""}</div></div>
+              <div className="exo" style={{fontWeight:900,color:C.gold,fontSize:13}}>{fmt(g.amount_usd||0)}</div>
+            </div>
+          ))}
         </div>
       </div>}
       {tab==="gifters"&&<div style={{maxWidth:500}}>
@@ -1700,7 +1890,7 @@ const DashPage=({fmt,darkMode=true,user,isStreamer,onSignIn})=>{
 };
 
 /* ═══════════════════ BECOME STREAMER ═══════════════════ */
-const COUNTRIES_LIST=['🇬🇭 Ghana','🇳🇬 Nigeria','🇰🇪 Kenya','🇿🇦 South Africa','🇺🇸 United States','🇬🇧 United Kingdom','🇨🇦 Canada','🇦🇺 Australia','🇩🇪 Germany','🇫🇷 France','🇮🇳 India','🇧🇷 Brazil','🇯🇵 Japan','🇨🇳 China','🇷🇺 Russia','🇦🇷 Argentina','🇲🇽 Mexico','🇳🇴 Norway','🇸🇪 Sweden','🇳🇱 Netherlands','🇧🇪 Belgium','🇨🇭 Switzerland','🇦🇹 Austria','🇵🇹 Portugal','🇪🇸 Spain','🇮🇹 Italy','🇬🇷 Greece','🇵🇱 Poland','🇺🇦 Ukraine','🇷🇴 Romania','🇸🇦 Saudi Arabia','🇦🇪 UAE','🇮🇱 Israel','🇹🇷 Turkey','🇪🇬 Egypt','🇲🇦 Morocco','🇹🇿 Tanzania','🇺🇬 Uganda','🇪🇹 Ethiopia','🇿🇲 Zambia','🇿🇼 Zimbabwe','🇬🇳 Guinea','🇨🇲 Cameroon','🇸🇳 Senegal','🇲🇱 Mali','🇧🇫 Burkina Faso','🇨🇮 Ivory Coast','🇬🇦 Gabon','🇸🇱 Sierra Leone','🇱🇷 Liberia','🇸🇬 Singapore','🇲🇾 Malaysia','🇵🇭 Philippines','🇮🇩 Indonesia','🇹🇭 Thailand','🇻🇳 Vietnam','🇰🇷 South Korea','🇵🇰 Pakistan','🇧🇩 Bangladesh','🇳🇿 New Zealand','🇮🇪 Ireland','🇩🇰 Denmark','🇫🇮 Finland','🇨🇿 Czech Republic','🇭🇺 Hungary','🇸🇰 Slovakia','🇧🇬 Bulgaria','🇷🇸 Serbia','🇭🇷 Croatia','🇸🇮 Slovenia','🇱🇹 Lithuania','🇱🇻 Latvia','🇪🇪 Estonia','🇦🇿 Azerbaijan','🇬🇪 Georgia','🇦🇲 Armenia','🇰🇿 Kazakhstan','🇺🇿 Uzbekistan','🇹🇳 Tunisia','🇱🇾 Libya','🇦🇱 Albania','🇲🇩 Moldova','🇬🇼 Guinea-Bissau','🇹🇬 Togo','🇧🇯 Benin','🇳🇪 Niger','🇨🇩 Congo (DRC)','🇨🇬 Congo','🇲🇿 Mozambique','🇲🇼 Malawi','🇷🇼 Rwanda','🇧🇮 Burundi','🇸🇸 South Sudan','🇸🇩 Sudan','🇩🇯 Djibouti','🇸🇴 Somalia','🇪🇷 Eritrea','🇧🇼 Botswana','🇳🇦 Namibia','🇸🇿 Eswatini','🇱🇸 Lesotho','🇲🇬 Madagascar','🇰🇲 Comoros','🇲🇺 Mauritius','🇸🇨 Seychelles'];
+const COUNTRIES_LIST=['🇰🇪 Kenya','🇳🇬 Nigeria','🇬🇭 Ghana','🇿🇦 South Africa','🇺🇸 United States','🇬🇧 United Kingdom','🇨🇦 Canada','🇦🇺 Australia','🇩🇪 Germany','🇫🇷 France','🇮🇳 India','🇧🇷 Brazil','🇯🇵 Japan','🇨🇳 China','🇷🇺 Russia','🇦🇷 Argentina','🇲🇽 Mexico','🇳🇴 Norway','🇸🇪 Sweden','🇳🇱 Netherlands','🇧🇪 Belgium','🇨🇭 Switzerland','🇦🇹 Austria','🇵🇹 Portugal','🇪🇸 Spain','🇮🇹 Italy','🇬🇷 Greece','🇵🇱 Poland','🇺🇦 Ukraine','🇷🇴 Romania','🇸🇦 Saudi Arabia','🇦🇪 UAE','🇮🇱 Israel','🇹🇷 Turkey','🇪🇬 Egypt','🇲🇦 Morocco','🇹🇿 Tanzania','🇺🇬 Uganda','🇪🇹 Ethiopia','🇿🇲 Zambia','🇿🇼 Zimbabwe','🇬🇳 Guinea','🇨🇲 Cameroon','🇸🇳 Senegal','🇲🇱 Mali','🇧🇫 Burkina Faso','🇨🇮 Ivory Coast','🇬🇦 Gabon','🇸🇱 Sierra Leone','🇱🇷 Liberia','🇸🇬 Singapore','🇲🇾 Malaysia','🇵🇭 Philippines','🇮🇩 Indonesia','🇹🇭 Thailand','🇻🇳 Vietnam','🇰🇷 South Korea','🇵🇰 Pakistan','🇧🇩 Bangladesh','🇳🇿 New Zealand','🇮🇪 Ireland','🇩🇰 Denmark','🇫🇮 Finland','🇨🇿 Czech Republic','🇭🇺 Hungary','🇸🇰 Slovakia','🇧🇬 Bulgaria','🇷🇸 Serbia','🇭🇷 Croatia','🇸🇮 Slovenia','🇱🇹 Lithuania','🇱🇻 Latvia','🇪🇪 Estonia','🇦🇿 Azerbaijan','🇬🇪 Georgia','🇦🇲 Armenia','🇰🇿 Kazakhstan','🇺🇿 Uzbekistan','🇹🇳 Tunisia','🇱🇾 Libya','🇦🇱 Albania','🇲🇩 Moldova','🇬🇼 Guinea-Bissau','🇹🇬 Togo','🇧🇯 Benin','🇳🇪 Niger','🇨🇩 Congo (DRC)','🇨🇬 Congo','🇲🇿 Mozambique','🇲🇼 Malawi','🇷🇼 Rwanda','🇧🇮 Burundi','🇸🇸 South Sudan','🇸🇩 Sudan','🇩🇯 Djibouti','🇸🇴 Somalia','🇪🇷 Eritrea','🇧🇼 Botswana','🇳🇦 Namibia','🇸🇿 Eswatini','🇱🇸 Lesotho','🇲🇬 Madagascar','🇰🇲 Comoros','🇲🇺 Mauritius','🇸🇨 Seychelles'];
 
 const BecomeStreamer=({fmt,onBack,onComplete,user,currency="USD"})=>{
   const [step,setStep]=useState(1);
@@ -1757,7 +1947,7 @@ const BecomeStreamer=({fmt,onBack,onComplete,user,currency="USD"})=>{
           <div style={{marginBottom:12}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>EMAIL *</label><input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></div>
           <div style={{marginBottom:12}}><label style={{fontSize:10,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,display:"block",marginBottom:6}}>PHONE * (with country code)</label>
             <div style={{display:"flex",gap:8}}>
-              <input className="inp" type="tel" placeholder="+233 XX XXX XXXX" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} style={{flex:1}}/>
+              <input className="inp" type="tel" placeholder="+254 7XX XXX XXX" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} style={{flex:1}}/>
               <button className="btn btnC" style={{padding:"0 16px",fontSize:13,flexShrink:0,opacity:sending?.5:1}} onClick={sendCode} disabled={sending}>{sending?"Sending...":codeSent?"Resend":"Send Code"}</button>
             </div>
           </div>
@@ -1775,7 +1965,7 @@ const BecomeStreamer=({fmt,onBack,onComplete,user,currency="USD"})=>{
           </div>
           <div style={{marginBottom:18}}>
             <div style={{fontSize:11,color:C.muted,fontWeight:800,fontFamily:"Exo 2",letterSpacing:1,marginBottom:10}}>SELECT PAYMENT METHOD</div>
-            {[["Mobile Money (MTN, Vodafone, Airtel)","phone"],["Credit / Debit Card","creditcard"],["Bank Transfer","building"]].map(([label,icon],i)=>(
+            {[["M-Pesa / Airtel Money","phone"],["Credit / Debit Card","creditcard"],["Bank Transfer","building"]].map(([label,icon],i)=>(
               <div key={i} onClick={()=>setPayMethod(i)} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:14,border:`1.5px solid ${payMethod===i?C.cyan:C.border}`,background:payMethod===i?`${C.cyan}10`:C.card2,cursor:"pointer",marginBottom:8,transition:"all .2s"}}>
                 <Ico n={icon} s={20} c={payMethod===i?C.cyan:C.muted}/>
                 <span style={{fontSize:13,fontWeight:700,color:payMethod===i?C.cyan:C.text}}>{label}</span>
@@ -2097,7 +2287,7 @@ const SettingsPanel=({user,onSignOut,onSignIn,isStreamer})=>{
           {openSection===sec.id&&<div className="settingsPanel" style={{borderRadius:"0 0 14px 14px",padding:"16px",border:`1px solid ${C.border}`,borderTop:"none",marginTop:-4}}>
             {sec.id==="notifs"&&<div>{[["gifts","Gift notifications"],["subs","New subscriber alerts"],["live","Streamer went live"],["marketing","Tips & updates"]].map(([k,label])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><Toggle on={notifPrefs[k]} onChange={()=>toggle(setNotifPrefs,k)}/></div>))}</div>}
             {sec.id==="privacy"&&<div>{[["showEarnings","Show earnings on profile"],["allowDM","Allow direct messages"],["publicProfile","Public profile"]].map(([k,label])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><Toggle on={privPrefs[k]} onChange={()=>toggle(setPrivPrefs,k)}/></div>))}<div style={{marginTop:12}}><button style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700}}>Block / Muted Users</button></div></div>}
-            {sec.id==="payments"&&<div><div style={{fontSize:13,color:C.muted,marginBottom:12}}>Connected payment methods:</div>{[["Paystack","GHS, KES"],["Stripe","USD, GBP, EUR, CAD"]].map(([name,currencies])=>(<div key={name} className="settingsInner" style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px",borderRadius:10,marginBottom:8}}><div><div style={{fontWeight:700,fontSize:13}}>{name}</div><div style={{fontSize:11,color:C.muted}}>{currencies}</div></div><div style={{display:"flex",alignItems:"center",gap:4}}><Ico n="check" s={13} c={C.emerald} sw={3}/><span style={{fontSize:11,color:C.emerald,fontWeight:700}}>Connected</span></div></div>))}{isStreamer&&<div style={{marginTop:14}}><div style={{fontSize:12,color:C.muted,marginBottom:8}}>Payout account:</div><input className="inp" placeholder="Mobile Money / Bank account number" style={{fontSize:13}}/><button className="btn btnC" style={{padding:"9px 18px",fontSize:13,marginTop:10}}>Save Payout Account</button></div>}</div>}
+            {sec.id==="payments"&&<div><div style={{fontSize:13,color:C.muted,marginBottom:12}}>Connected payment methods:</div>{[["Paystack (M-Pesa)","KES, NGN"],["Stripe","USD, GBP, EUR, CAD"]].map(([name,currencies])=>(<div key={name} className="settingsInner" style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px",borderRadius:10,marginBottom:8}}><div><div style={{fontWeight:700,fontSize:13}}>{name}</div><div style={{fontSize:11,color:C.muted}}>{currencies}</div></div><div style={{display:"flex",alignItems:"center",gap:4}}><Ico n="check" s={13} c={C.emerald} sw={3}/><span style={{fontSize:11,color:C.emerald,fontWeight:700}}>Connected</span></div></div>))}{isStreamer&&<div style={{marginTop:14}}><div style={{fontSize:12,color:C.muted,marginBottom:8}}>Payout account:</div><input className="inp" placeholder="Mobile Money / Bank account number" style={{fontSize:13}}/><button className="btn btnC" style={{padding:"9px 18px",fontSize:13,marginTop:10}}>Save Payout Account</button></div>}</div>}
             {sec.id==="security"&&<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",marginBottom:12,borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:13}}>Two-Factor Authentication</div><div style={{fontSize:11,color:C.muted}}>Extra security for your account</div></div><Toggle on={twoFA} onChange={()=>setTwoFA(v=>!v)}/></div><div style={{marginBottom:10}}><div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Connected email</div><div className="settingsInner" style={{fontSize:13,borderRadius:10,padding:"9px 14px"}}>{user?.email||"Not logged in"}</div></div><button style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,width:"100%",marginTop:8}}>Change Password</button><button style={{background:"#FF2D2D08",border:"1px solid #FF2D2D20",borderRadius:10,padding:"8px 14px",color:"#FF6060",cursor:"pointer",fontSize:12,marginTop:8,width:"100%"}}>Delete Account</button></div>}
             {sec.id==="help"&&<div>{[["How do gifts work?","Viewers send gifts during streams. You keep 90%, platform takes 10%."],["How do I withdraw?","Withdrawals processed within 24 hours to your payout account."],["Why was my stream removed?","Streams violating community guidelines are removed."],["How do I become verified?","Complete identity verification and pay the one-time setup fee."]].map(([q,a])=>(<div key={q} className="settingsInner" style={{marginBottom:12,padding:"12px",borderRadius:10}}><div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{q}</div><div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{a}</div></div>))}<a href="mailto:1innovativestudio@gmail.com" style={{textDecoration:"none"}}><button className="btn btnC" style={{padding:"10px 20px",fontSize:13,marginTop:4}}>Contact Support</button></a><div style={{fontSize:11,color:C.muted,marginTop:8}}>Email: <span style={{color:C.cyan}}>1innovativestudio@gmail.com</span></div></div>}
             {sec.id==="terms"&&<TermsSection/>}
@@ -2228,6 +2418,95 @@ const StreamerProfile=({streamer,fmt,onBack,onStream,user,onAuthRequired,cur})=>
           </div>
         </div>}
       </div>
+    </div>
+  );
+};
+
+/* ═══════════════════ ADMIN PAGE ═══════════════════ */
+const AdminPage=({fmt,user,darkMode})=>{
+  const [stats,setStats]=useState({streams:0,live:0,users:0,giftTotal:0,subs:0,giftCount:0});
+  const [liveStreams,setLiveStreams]=useState([]);
+  const [users,setUsers]=useState([]);
+  const [q,setQ]=useState("");
+  const [tab,setTab]=useState("overview");
+  const [busy,setBusy]=useState("");
+
+  const loadStats=async()=>{
+    const [s1,s2,s3,g,s5,lives]=await Promise.all([
+      supabase.from("streams").select("id",{count:"exact",head:true}),
+      supabase.from("streams").select("id",{count:"exact",head:true}).eq("is_live",true),
+      supabase.from("profiles").select("id",{count:"exact",head:true}),
+      supabase.from("gifts").select("amount_usd"),
+      supabase.from("subscriptions").select("id",{count:"exact",head:true}).eq("status","active"),
+      supabase.from("streams").select("*").eq("is_live",true).order("viewer_count",{ascending:false}).limit(50),
+    ]);
+    const giftRows=g.data||[];
+    setStats({streams:s1.count||0,live:s2.count||0,users:s3.count||0,giftTotal:giftRows.reduce((a,x)=>a+(x.amount_usd||0),0),giftCount:giftRows.length,subs:s5.count||0});
+    setLiveStreams(lives.data||[]);
+  };
+  const loadUsers=async()=>{const {data}=await supabase.from("profiles").select("*").order("id").limit(200);setUsers(data||[]);};
+  useEffect(()=>{loadStats();loadUsers();const i=setInterval(loadStats,8000);return()=>clearInterval(i);},[]);
+
+  const endStreamAdmin=async(id)=>{if(!window.confirm("End & delete this stream?"))return;setBusy(id);await supabase.from("streams").delete().eq("id",id);await loadStats();setBusy("");};
+  const toggleVerify=async(u)=>{setBusy(u.id);const next=!(u.is_streamer||u.streamer_verified);await supabase.from("profiles").update({is_streamer:next,fee_paid:next,streamer_verified:next}).eq("id",u.id);await loadUsers();setBusy("");};
+
+  const filteredUsers=users.filter(u=>{const s=(u.display_name||u.username||u.id||"").toLowerCase();return !q||s.includes(q.toLowerCase());});
+
+  if(!isAdminUser(user))return(
+    <div style={{padding:"60px 20px",textAlign:"center"}} className="page">
+      <div className="icoFloat" style={{display:"flex",justifyContent:"center",marginBottom:16}}><Ico n="lock" s={52} c={C.muted}/></div>
+      <div className="exo" style={{fontSize:22,fontWeight:900,marginBottom:8}}>Admin Access Only</div>
+      <div style={{fontSize:14,color:C.muted}}>You don't have permission to view this page.</div>
+    </div>
+  );
+
+  const STAT=[["mic","Total Streams",stats.streams,C.cyan],["activity","Live Now",stats.live,"#FF2D2D"],["users","Users",stats.users,C.purple],["gift","Gift Volume",fmt(stats.giftTotal),C.gold],["star","Active Subs",stats.subs,C.emerald],["trophy","Total Gifts",stats.giftCount,C.amber]];
+  return(
+    <div style={{padding:"24px 20px 40px"}} className="page">
+      <div style={{marginBottom:18,display:"flex",alignItems:"center",gap:10}}><Ico n="shield" s={24} c={C.cyan}/><div><div className="exo" style={{fontSize:22,fontWeight:900}}>Admin Console</div><div style={{fontSize:12,color:darkMode?C.muted:"#555"}}>Manage streams, users and platform activity</div></div></div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:20}}>
+        {STAT.map(([icon,label,val,col],i)=>(
+          <div key={i} className="card" style={{padding:"16px",textAlign:"center"}}><div style={{display:"flex",justifyContent:"center",marginBottom:8}}><Ico n={icon} s={22} c={col}/></div><div className="exo" style={{fontWeight:900,fontSize:20,color:col}}>{val}</div><div style={{fontSize:11,color:darkMode?C.muted:"#555",marginTop:3}}>{label}</div></div>
+        ))}
+      </div>
+      <div className="sx" style={{display:"flex",gap:6,marginBottom:18,background:C.card2,borderRadius:14,padding:4,maxWidth:420}}>
+        {["overview","streams","users"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"9px",borderRadius:11,border:"none",background:tab===t?C.card:"transparent",color:tab===t?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"capitalize"}}>{t}</button>))}
+      </div>
+
+      {tab==="overview"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
+        <div className="exo" style={{fontWeight:800,fontSize:14,marginBottom:10}}>Platform Health</div>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.9}}>
+          <div>· <strong style={{color:C.text}}>{stats.live}</strong> streams live right now</div>
+          <div>· <strong style={{color:C.text}}>{stats.users}</strong> registered accounts</div>
+          <div>· <strong style={{color:C.text}}>{fmt(stats.giftTotal)}</strong> total gift volume across <strong style={{color:C.text}}>{stats.giftCount}</strong> gifts</div>
+          <div>· <strong style={{color:C.text}}>{stats.subs}</strong> active subscriptions</div>
+          <div>· Platform revenue (est.): <strong style={{color:C.emerald}}>{fmt(stats.giftTotal*0.10)}</strong> from gifts</div>
+        </div>
+      </div>}
+
+      {tab==="streams"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div className="exo" style={{fontWeight:800,fontSize:14}}>Live Streams</div><span style={{fontSize:11,color:C.muted}}>{liveStreams.length} live</span></div>
+        {liveStreams.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No live streams right now.</div>}
+        {liveStreams.map((s,i)=>(
+          <div key={s.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<liveStreams.length-1?`1px solid ${C.border}`:"none"}}>
+            <div style={{width:40,height:40,borderRadius:10,background:`${C.cyan}15`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div className="liveDot"/></div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title||"Live Stream"}</div><div style={{fontSize:11,color:C.muted}}>{(s.viewer_count||0).toLocaleString()} viewers · {s.category||"General"}</div></div>
+            <button onClick={()=>endStreamAdmin(s.id)} disabled={busy===s.id} style={{background:"#FF2D2D15",border:"1px solid #FF2D2D30",borderRadius:8,padding:"6px 12px",color:"#FF6060",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><Ico n="trash" s={13} c="#FF6060"/>{busy===s.id?"…":"End"}</button>
+          </div>
+        ))}
+      </div>}
+
+      {tab==="users"&&<div className="card" style={{padding:"18px",maxWidth:700}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10}}><div className="exo" style={{fontWeight:800,fontSize:14,flexShrink:0}}>Users</div><input className="inp" placeholder="Search users…" value={q} onChange={e=>setQ(e.target.value)} style={{maxWidth:220,fontSize:12,padding:"7px 12px"}}/></div>
+        {filteredUsers.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:13}}>No users found.</div>}
+        {filteredUsers.map((u,i)=>{const verified=!!(u.is_streamer||u.streamer_verified);return(
+          <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:i<filteredUsers.length-1?`1px solid ${C.border}`:"none"}}>
+            {u.avatar_url?<img src={u.avatar_url} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}}/>:<Av ch={(u.display_name||u.username||"U")[0].toUpperCase()} sz={38}/>}
+            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5}}>{u.display_name||u.username||"User"}{verified&&<span style={{display:"inline-flex",width:15,height:15,borderRadius:"50%",background:"#0095F6",alignItems:"center",justifyContent:"center"}}><Ico n="check" s={9} c="#fff" sw={3}/></span>}</div><div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.username?"@"+u.username:u.id}</div></div>
+            <button onClick={()=>toggleVerify(u)} disabled={busy===u.id} className={`btn ${verified?"btnS":"btnC"}`} style={{padding:"6px 12px",fontSize:11,flexShrink:0}}>{busy===u.id?"…":verified?"Unverify":"Verify"}</button>
+          </div>
+        );})}
+      </div>}
     </div>
   );
 };
@@ -2397,6 +2676,7 @@ export default function App(){
               {Object.entries(allCurrencies).map(([k,c])=>(<button key={k} onClick={()=>{setCurKey(k);setShowCurrencyPicker(false);}} style={{width:"100%",background:curKey===k?`${C.cyan}18`:"transparent",border:"none",borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:2}}><span style={{fontSize:18}}>{c.flag}</span><div style={{textAlign:"left"}}><div style={{fontSize:13,fontWeight:700,color:curKey===k?C.cyan:(darkMode?"#EEEEFF":"#1A1A3E")}}>{c.name}</div><div style={{fontSize:11,color:"#6868A8"}}>{c.sym} · {c.code}</div></div>{curKey===k&&<div style={{marginLeft:"auto"}}><Ico n="check" s={14} c={C.cyan} sw={3}/></div>}</button>))}
             </div>}
           </div>
+          {isAdminUser(user)&&<button onClick={()=>setTab("admin")} title="Admin Console" style={{background:tab==="admin"?`${C.cyan}20`:(darkMode?C.card:"#E8EBFF"),border:`1px solid ${tab==="admin"?C.cyan:(darkMode?C.border:"#DDE2FF")}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Ico n="shield" s={16} c={tab==="admin"?C.cyan:C.muted}/></button>}
           <button onClick={()=>setDarkMode(d=>!d)} style={{background:darkMode?C.card:"#E8F4FF",border:`1px solid ${darkMode?C.border:"#CBD5E0"}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .3s"}}><div style={{transition:"transform .4s",transform:darkMode?"rotate(0deg)":"rotate(180deg)"}}><Ico n={darkMode?"sun":"moon"} s={16} c={darkMode?C.gold:"#4A5568"}/></div></button>
           <div style={{position:"relative"}}>
             <button data-dropdown onClick={()=>setShowNotifs(v=>!v)} style={{background:darkMode?C.card:"#E8EBFF",border:`1px solid ${darkMode?C.border:"#DDE2FF"}`,borderRadius:11,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",flexShrink:0}}>
@@ -2416,6 +2696,7 @@ export default function App(){
         {tab==="live"&&<GoLivePage fmt={fmt} isStreamer={isStreamer} onBecomeStreamer={()=>setShowBecome(true)} user={user} darkMode={darkMode}/>}
         {tab==="dash"&&<DashPage fmt={fmt} darkMode={darkMode} user={user} isStreamer={isStreamer} onSignIn={()=>setShowAuth(true)}/>}
         {tab==="prof"&&<ProfilePage fmt={fmt} isStreamer={isStreamer} user={user} onSignIn={()=>setShowAuth(true)} onSignOut={()=>supabase.auth.signOut()} onAvatarSaved={url=>setTopAvatar(url)}/>}
+        {tab==="admin"&&<AdminPage fmt={fmt} user={user} darkMode={darkMode}/>}
       </div>
       <nav className={`mobileNav${topBarHidden?" mobileNavHide":""}`}>
         {mobileTabs.map(t=>(<button key={t.id} className={`mnBtn ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
