@@ -47,7 +47,7 @@ export const startStream = async ({
         supabase.from("streams")
           .update({ viewer_count: count })
           .eq("id", providedStreamId)
-          .catch(() => {});
+          .then(null, null); // fire-and-forget; .catch() not available on PostgrestBuilder
       };
       hc.on("user-joined", updateCount);
       hc.on("user-left",   updateCount);
@@ -97,10 +97,10 @@ export const endStream = async (streamId) => {
       startStream._activeClient = null;
     }
     if (streamId) {
+      // Supabase never throws — just await, errors surface in {data,error}
       await supabase.from("streams")
-        .update({ is_live: false, ended_at: new Date().toISOString() })
-        .eq("id", streamId)
-        .catch(() => {});
+        .update({ is_live: false })
+        .eq("id", streamId);
     }
     return true;
   } catch (e) {

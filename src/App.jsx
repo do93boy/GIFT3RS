@@ -1143,8 +1143,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // ── Step 1: End any ghost streams this streamer left open ─────────────
     await supabase.from("streams")
       .update({is_live:false})
-      .eq("streamer_id",user.id).eq("is_live",true)
-      .then(()=>{}).catch(()=>{});
+      .eq("streamer_id",user.id).eq("is_live",true);
 
     // ── Step 2: Upload thumbnail ───────────────────────────────────────────
     let thumbnailUrl="";
@@ -1162,7 +1161,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     // Minimal row — only columns guaranteed to exist in a basic streams table
     const minRow={streamer_id:user.id,title,is_live:true,channel_name:channelName,started_at:new Date().toISOString()};
     // Extended row — add optional columns; Supabase ignores unknown ones via upsert
-    let {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single().catch(()=>({data:null}));
+    const {data:profileData}=await supabase.from("profiles").select("*").eq("id",user.id).single();
     const extRow={
       ...minRow,
       streamer_name:user.email?.split("@")[0]||"Streamer",
@@ -1197,12 +1196,12 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     let result=null;
     try{
       result=await Promise.race([
-        startStream({channelName,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).catch(()=>{});}}),
+        startStream({channelName,streamId:supabaseStreamId,onViewerCountUpdate:(count)=>{setViewers(count);supabase.from("streams").update({viewer_count:count}).eq("id",supabaseStreamId).then(null,null);}}),
         new Promise((_,reject)=>window.setTimeout(()=>reject(new Error("Start timed out (20s) — check camera permissions and network.")),20000)),
       ]);
     }catch(err){
       setStreamError(err?.message||"Failed to start stream.");
-      await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId).catch(()=>{});
+      await supabase.from("streams").update({is_live:false}).eq("id",supabaseStreamId);
       setStarting(false);
       restartCameraPreview(); // restore camera preview after failure
       return;
@@ -1225,7 +1224,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
     if(liveVideoRef.current)liveVideoRef.current.innerHTML="";
     if(captureRef.current){captureRef.current.srcObject=null;}
     localVideoTrack.current=null;localAudioTrack.current=null;
-    if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0,ended_at:new Date().toISOString()}).eq("id",streamId).catch(()=>{});}
+    if(streamId){await supabase.from("streams").update({is_live:false,viewer_count:0}).eq("id",streamId);}
     setIsLive(false);setSecs(0);setViewers(0);setGiftTotal(0);setStreamId(null);setStudioTab("setup");setStudioChat([]);
     setThumbPreview("");setThumbFile(null);setCamOn(true);setMicOn(true);
     // Restart camera preview for the setup tab
@@ -1251,7 +1250,7 @@ const GoLivePage=({fmt,isStreamer,onBecomeStreamer,user,darkMode=true})=>{
   const sendStudioMsg=async()=>{
     if(!chatMsg.trim())return;const msg=chatMsg.trim();setChatMsg("");
     setStudioChat(c=>[...c,{u:"You (Streamer)",t:msg,id:Date.now(),type:"streamer"}]);
-    if(streamId&&user){await supabase.from("chat_messages").insert({stream_id:streamId,user_id:user.id,username:user.email?.split("@")[0]||"Streamer",message:msg}).catch(()=>{});}
+    if(streamId&&user){await supabase.from("chat_messages").insert({stream_id:streamId,user_id:user.id,username:user.email?.split("@")[0]||"Streamer",message:msg});}
   };
   const addTag=()=>{if(tagInput.trim()&&tags.length<5&&!tags.includes(tagInput.trim())){setTags(t=>[...t,tagInput.trim()]);setTagInput("");}};
   const copyLink=()=>{navigator.clipboard.writeText(shareLink);setCopied(true);window.setTimeout(()=>setCopied(false),2000);};
@@ -2174,12 +2173,12 @@ export default function App(){
   // This cleans up streams left over from browser-close / crashed sessions.
   useEffect(()=>{
     if(!user?.id)return;
+    // .then(ful, rej) triggers the query; Supabase PostgrestBuilder has no .catch()
     supabase.from("streams")
       .update({is_live:false})
       .eq("streamer_id",user.id)
       .eq("is_live",true)
-      .then(()=>{})   // force Supabase to execute the query
-      .catch(()=>{});
+      .then(null, null);
   },[user?.id]); // eslint-disable-line
 
   // Open stream from share link (?stream=UUID&ch=channel&sn=name&st=title)
