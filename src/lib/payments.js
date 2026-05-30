@@ -98,6 +98,18 @@ const payWithStripe = async ({ amountUsd,description,metadata={},onSuccess,onCan
   throw new Error("Payment incomplete");
 };
 
+// Insert a gift resiliently: try with all fields, and if the table is missing
+// optional columns (currency_code / sender_username), retry with core columns.
+const saveGift = async (full) => {
+  let { error } = await supabase.from("gifts").insert(full);
+  if (error) {
+    const { sender_id, receiver_id, stream_id, amount_usd, emoji, message, platform_cut, streamer_cut } = full;
+    const r2 = await supabase.from("gifts").insert({ sender_id, receiver_id, stream_id, amount_usd, emoji, message, platform_cut, streamer_cut });
+    error = r2.error;
+  }
+  return { error };
+};
+
 // ─────────────────────────────────────────────────────────────
 // 1. SEND GIFT
 // ─────────────────────────────────────────────────────────────
@@ -105,16 +117,18 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
   const platformCut = +(amountUsd*GIFT_PLATFORM_CUT).toFixed(2);
   const streamerCut = +(amountUsd*(1-GIFT_PLATFORM_CUT)).toFixed(2);
   const reference   = `gift_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const giftRow = {
+    sender_id:senderId, receiver_id:receiverId, stream_id:streamId,
+    amount_usd:amountUsd, emoji, message:message||"",
+    platform_cut:platformCut, streamer_cut:streamerCut, currency_code:currency,
+    sender_username: senderEmail?.split("@")[0]||"Viewer",
+  };
 
   // ── TEST MODE: skip real payment ──────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
-    await supabase.from("gifts").insert({
-      sender_id:senderId, receiver_id:receiverId, stream_id:streamId,
-      amount_usd:amountUsd, emoji, message:message||"",
-      platform_cut:platformCut, streamer_cut:streamerCut, currency_code:currency,
-      sender_username: senderEmail?.split("@")[0]||"Viewer",
-    });
+    const { error } = await saveGift(giftRow);
+    if (error) { alert("Gift failed to save: "+error.message); return; }
     onSuccess?.({ reference:"test_"+Date.now(), amountUsd, streamerCut, platformCut, emoji });
     return;
   }
@@ -124,7 +138,7 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
   try {
     const handleSuccess = async (tx) => {
       await savePayment({ userId:senderId, type:"gift", amountUsd, platformCut, recipientCut:streamerCut, currency, reference:tx.reference||reference, metadata:{receiverId,streamId,emoji,message} });
-      await supabase.from("gifts").insert({ sender_id:senderId, receiver_id:receiverId, stream_id:streamId, amount_usd:amountUsd, emoji, message:message||"", platform_cut:platformCut, streamer_cut:streamerCut, currency_code:currency });
+      await saveGift(giftRow);
       onSuccess?.({ amountUsd, streamerCut, platformCut, emoji });
     };
     if (provider==="paystack") {
@@ -144,17 +158,19 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
 // reuse an existing row (active or cancelled) if present, else insert.
 // This makes subscribe → cancel → resubscribe work every time.
 const saveSubscription = async ({ subscriberId, streamerId, plan, priceUsd }) => {
-  const { data: existing } = await supabase
+  const { data: existing, error: selErr } = await supabase
     .from("subscriptions").select("id")
     .eq("subscriber_id", subscriberId).eq("streamer_id", streamerId).limit(1);
+  if (selErr) return { error: selErr };
   if (existing && existing.length) {
-    await supabase.from("subscriptions")
+    const { error } = await supabase.from("subscriptions")
       .update({ plan, price_usd: priceUsd, status: "active" })
       .eq("id", existing[0].id);
-  } else {
-    await supabase.from("subscriptions")
-      .insert({ subscriber_id: subscriberId, streamer_id: streamerId, plan, price_usd: priceUsd, status: "active" });
+    return { error };
   }
+  const { error } = await supabase.from("subscriptions")
+    .insert({ subscriber_id: subscriberId, streamer_id: streamerId, plan, price_usd: priceUsd, status: "active" });
+  return { error };
 };
 
 export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streamerId,plan,priceUsd,currency="GHS",onSuccess,onCancel }) => {
@@ -165,7 +181,8 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   // ── TEST MODE ─────────────────────────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
-    await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
+    const { error } = await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
+    if (error) { alert("Subscription failed to save: "+error.message); return; }
     onSuccess?.({ plan, priceUsd, streamerCut });
     return;
   }
@@ -175,7 +192,8 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   try {
     const handleSuccess = async (tx) => {
       await savePayment({ userId:subscriberId, type:"subscription", amountUsd:priceUsd, platformCut, recipientCut:streamerCut, currency, reference:tx.reference||reference, metadata:{receiverId:streamerId,plan} });
-      await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
+      const { error } = await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
+      if (error) { alert("Subscription failed to save: "+error.message); return; }
       onSuccess?.({ plan, priceUsd, streamerCut });
     };
     if (provider==="paystack") {
