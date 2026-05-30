@@ -98,6 +98,17 @@ const payWithStripe = async ({ amountUsd,description,metadata={},onSuccess,onCan
   throw new Error("Payment incomplete");
 };
 
+// Ensure the user has a profiles row, so FKs (subscriptions.subscriber_id,
+// gifts.sender_id, follows.follower_id → profiles.id) are satisfied.
+export const ensureProfile = async (userId, email) => {
+  if (!userId) return;
+  const { data } = await supabase.from("profiles").select("id").eq("id", userId).limit(1);
+  if (!data || !data.length) {
+    const name = email?.split("@")[0] || "User";
+    await supabase.from("profiles").insert({ id: userId, username: name, display_name: name }).then(null, null);
+  }
+};
+
 // Insert a gift resiliently: try with all fields, and if the table is missing
 // optional columns (currency_code / sender_username), retry with core columns.
 const saveGift = async (full) => {
@@ -127,6 +138,7 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
   // ── TEST MODE: skip real payment ──────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
+    await ensureProfile(senderId, senderEmail);
     const { error } = await saveGift(giftRow);
     if (error) { alert("Gift failed to save: "+error.message); return; }
     onSuccess?.({ reference:"test_"+Date.now(), amountUsd, streamerCut, platformCut, emoji });
@@ -137,6 +149,7 @@ export const sendGift = async ({ senderId,senderEmail,receiverId,streamId,amount
   const amountLocal = toLocal(amountUsd, currency);
   try {
     const handleSuccess = async (tx) => {
+      await ensureProfile(senderId, senderEmail);
       await savePayment({ userId:senderId, type:"gift", amountUsd, platformCut, recipientCut:streamerCut, currency, reference:tx.reference||reference, metadata:{receiverId,streamId,emoji,message} });
       await saveGift(giftRow);
       onSuccess?.({ amountUsd, streamerCut, platformCut, emoji });
@@ -181,6 +194,7 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   // ── TEST MODE ─────────────────────────────────────────────
   if (PAYMENT_TEST_MODE) {
     await new Promise(r => setTimeout(r, 1200));
+    await ensureProfile(subscriberId, subscriberEmail);
     const { error } = await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
     if (error) { alert("Subscription failed to save: "+error.message); return; }
     onSuccess?.({ plan, priceUsd, streamerCut });
@@ -191,6 +205,7 @@ export const subscribeToStreamer = async ({ subscriberId,subscriberEmail,streame
   const amountLocal = toLocal(priceUsd, currency);
   try {
     const handleSuccess = async (tx) => {
+      await ensureProfile(subscriberId, subscriberEmail);
       await savePayment({ userId:subscriberId, type:"subscription", amountUsd:priceUsd, platformCut, recipientCut:streamerCut, currency, reference:tx.reference||reference, metadata:{receiverId:streamerId,plan} });
       const { error } = await saveSubscription({ subscriberId, streamerId, plan, priceUsd });
       if (error) { alert("Subscription failed to save: "+error.message); return; }

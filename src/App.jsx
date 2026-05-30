@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 import Auth from "./Auth.jsx";
-import { sendGift, subscribeToStreamer, payStreamerFee, PAYMENT_TEST_MODE } from "./lib/payments";
+import { sendGift, subscribeToStreamer, payStreamerFee, PAYMENT_TEST_MODE, ensureProfile } from "./lib/payments";
 import {
   startStream, endStream, toggleMic, toggleCamera,
   makeChannel, joinStream, leaveStream, playLocalVideo,
@@ -2657,7 +2657,7 @@ export default function App(){
   const [streamNotFound,setStreamNotFound]=useState(false);
   const [topAvatar,setTopAvatar]=useState("");
   const [topBarHidden,setTopBarHidden]=useState(false);
-  const fetchAvatar=useCallback(async(u)=>{if(!u)return;const {data}=await supabase.from("profiles").select("avatar_url,is_streamer,fee_paid").eq("id",u.id).single();if(data?.avatar_url)setTopAvatar(data.avatar_url);if(data?.is_streamer||data?.fee_paid){setIsStreamer(true);localStorage.setItem("gift3rs_is_streamer","true");}},[]);
+  const fetchAvatar=useCallback(async(u)=>{if(!u)return;await ensureProfile(u.id,u.email);const {data}=await supabase.from("profiles").select("avatar_url,is_streamer,fee_paid").eq("id",u.id).limit(1).then(r=>({data:r.data&&r.data[0]}));if(data?.avatar_url)setTopAvatar(data.avatar_url);if(data?.is_streamer||data?.fee_paid){setIsStreamer(true);localStorage.setItem("gift3rs_is_streamer","true");}},[]);
   useEffect(()=>{document.body.classList.toggle("light",!darkMode);document.body.style.background=darkMode?"#06060F":"#F0F2FF";document.body.style.color=darkMode?"#EEEEFF":"#1A1A3E";},[darkMode]);
   // Auto-hide topbar: hide on scroll down, reveal on scroll up
   useEffect(()=>{
